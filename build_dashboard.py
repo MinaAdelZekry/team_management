@@ -1,0 +1,1061 @@
+"""
+Analyst Connectivity Dashboard generator.
+
+Usage:
+    python build_dashboard.py <ConnectivityRequests.xlsx> <ActionItems.xlsx> [OERequests.xlsx] [output.html]
+
+Produces a self-contained interactive HTML dashboard. The dashboard itself can
+be refreshed later by uploading new CR / AI Excel exports directly in the page
+(no need to rerun this script).
+
+Rules implemented:
+  - Monthly production month = Ready For Production date, falling back to
+    Production date when RFP is empty.
+  - AI pending days = days since last comment, falling back to the AI
+    creation (start) date when there is no comment.
+"""
+import sys, json, re
+import pandas as pd
+from datetime import datetime
+
+CR_KEEP = ["Request ID", "Carrier", "Customer", "Instance", "Request Type",
+           "Migration", "IsMigration", "Is Migration", "Migration Request",
+           "Migration Type", "Migration Phase",
+           "Stage", "Status", "Technical Contact", "iSolved Contact",
+           "Created Date", "Assignment Date", "Requirements Gathering",
+           "Resource Assignment", "Dataset Validation", "Mapping", "Testing",
+           "Ready For Production", "Production", "First Test File",
+           "First Production File"]
+AI_KEEP = ["ActionItemID", "ActionItemTitle", "ClientName", "CarrierName",
+           "Requestor", "CurrentlyPendingOn", "StartDate", "DueDate",
+           "Due Date", "DueOn", "LastCommentOwner", "LastCommentDate",
+           "LastComment", "ConnectivityRequestID"]
+OE_KEEP = ["OERequestID", "ConnectivityRequestID", "ClientName", "CarrierName",
+           "RequestType", "PlanYearStartDate", "ClientDataExpectedDate",
+           "ISolvedDataChanges", "UpdatedGroupStructure", "Status", "Stage",
+           "TechnicalContact", "DataReadyDate", "OEFileSubmissionDate",
+           "IsolvedContact", "CanResumeProductionPYSD", "ResumedProduction",
+           "IsDraftOERequest", "Created", "CreatedBy"]
+ACTIVE = ["In Progress", "Blocked", "On Hold", "Not Started"]
+
+# mirrors norm()/baseKey() in the dashboard JS so the embed mask keeps every
+# CR that an action item could attach to
+_STOP = re.compile(r"\b(inc|llc|llp|ltd|co|corp|corporation|company|the|of)\b")
+
+
+def _norm(s):
+    s = re.sub(r"[^a-z0-9 ]", " ", str("" if s is None else s).lower())
+    return re.sub(r"\s+", " ", _STOP.sub("", s)).strip()
+
+
+def _base_key(client, carrier):
+    return (_norm(client), _norm(re.sub(r"\(.*?\)", " ", str("" if carrier is None else carrier))))
+
+
+def detect(paths):
+    cr = ai = oe = None
+    for p in paths:
+        cols = set(pd.read_excel(p, nrows=0).columns)
+        if "ActionItemID" in cols or "CurrentlyPendingOn" in cols:
+            ai = p
+        elif "OERequestID" in cols:
+            oe = p
+        elif "Request ID" in cols:
+            cr = p
+    if not cr or not ai:
+        sys.exit("Could not identify the CR and AI reports from the given files.")
+    return cr, ai, oe
+
+
+def records(df, keep):
+    df = df[[c for c in keep if c in df.columns]].copy()
+    for c in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[c]):
+            df[c] = df[c].dt.strftime("%Y-%m-%d")
+    recs = json.loads(df.to_json(orient="records", date_format="iso"))
+    return [{k: v for k, v in r.items() if v is not None} for r in recs]
+
+
+def main():
+    args = sys.argv[1:]
+    out = "Analyst_Dashboard.html"
+    if args and args[-1].lower().endswith((".html", ".htm")):
+        out = args.pop()
+    if len(args) < 2:
+        sys.exit(__doc__)
+    cr_path, ai_path, oe_path = detect(args)
+
+    cr = pd.read_excel(cr_path)
+    ai = pd.read_excel(ai_path)
+    for c in ["StartDate", "LastCommentDate", "DueDate", "Due Date", "DueOn"]:
+        if c in ai.columns:
+            ai[c] = pd.to_datetime(ai[c], errors="coerce")
+
+    # embed only rows the dashboard can use (active, has a prod/RFP date,
+    # or is referenced by an open action item)
+    ai_keys = {_base_key(r.get("ClientName"), r.get("CarrierName"))
+               for _, r in ai.iterrows()}
+    cr_keys = cr.apply(lambda r: _base_key(r.get("Customer"), r.get("Carrier")), axis=1)
+    mask = (cr["Status"].isin(ACTIVE) & cr["Technical Contact"].notna()) \
+        | cr["Ready For Production"].notna() | cr["Production"].notna() \
+        | cr_keys.isin(ai_keys)
+    if "ConnectivityRequestID" in ai.columns:
+        mask |= cr["Request ID"].isin(ai["ConnectivityRequestID"].dropna())
+    oe_recs = []
+    if oe_path:
+        oe = pd.read_excel(oe_path)
+        oe_recs = records(oe[oe["Status"].isin(ACTIVE)], OE_KEEP)
+    raw = {"generated": datetime.now().strftime("%Y-%m-%d"),
+           "cr": records(cr[mask], CR_KEEP), "ai": records(ai, AI_KEEP),
+           "oe": oe_recs}
+
+    html = TEMPLATE.replace("__RAW__", json.dumps(raw, ensure_ascii=False))
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"Wrote {out}: {int(mask.sum())} CR rows, {len(ai)} AI rows, "
+          f"{len(oe_recs)} OE rows embedded")
+
+
+TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analyst Connectivity Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#1b2733; --ink-soft:#5b6b7b; --paper:#f5f6f4; --card:#ffffff;
+    --line:#e2e6e1; --accent:#0f6f5c; --accent-soft:#e2f0ec;
+    --amber:#b26a00; --amber-bg:#fdf2df; --red:#b3261e; --red-bg:#fbe9e7;
+    --blue:#2b5d8a; --blue-bg:#e7eff6;
+    --mono:'SF Mono',Consolas,'Liberation Mono',monospace;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{font:15px/1.45 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+       background:var(--paper);color:var(--ink);padding-bottom:60px}
+  header{background:var(--ink);color:#fff;padding:16px 16px 12px}
+  header .wrap{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  header h1{font-size:19px;font-weight:650;letter-spacing:.2px}
+  header .sub{color:#9fb0bf;font-size:12.5px;margin-top:2px;font-family:var(--mono)}
+  .upload{display:flex;align-items:center;gap:8px}
+  .upload label{background:#2e4155;color:#dfe8f0;font-size:12.5px;font-weight:650;
+        padding:8px 14px;border-radius:8px;cursor:pointer;border:1px solid #45596e}
+  .upload label:hover{background:#3a5069}
+  #upmsg{font-size:12px;font-family:var(--mono);max-width:340px}
+  #upmsg.ok{color:#8fd6b8} #upmsg.err{color:#ffb3ad}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 12px}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:16px 0 6px}
+  select,input#emp{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;
+         background:var(--card);min-width:230px;font-weight:600}
+  .toolbar button{font:inherit;font-weight:650;border:1px solid var(--line);background:var(--card);
+         border-radius:8px;padding:9px 14px;cursor:pointer}
+  .toolbar button:hover{background:var(--accent-soft)}
+  #repmodal{display:none;position:fixed;inset:0;background:rgba(20,30,40,.45);z-index:50;padding:20px}
+  #repmodal.open{display:flex;align-items:center;justify-content:center}
+  .repbox{background:var(--card);border-radius:12px;max-width:840px;width:100%;max-height:85vh;
+         display:flex;flex-direction:column;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+  .rephead{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+  .rephead b{flex:1;font-size:14.5px}
+  .rephead button{font:inherit;font-size:13px;font-weight:650;border:1px solid var(--line);
+         background:var(--card);border-radius:8px;padding:6px 12px;cursor:pointer}
+  .rephead button:hover{background:var(--accent-soft)}
+  #reptext{flex:1;width:100%;min-height:340px;font:12.5px/1.5 var(--mono);border:1px solid var(--line);
+         border-radius:8px;padding:10px;resize:vertical;white-space:pre;overflow:auto}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:12px 0 18px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi b{display:block;font-size:26px;font-weight:700}
+  .kpi span{font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.5px}
+  h2{font-size:14px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-soft);
+     margin:22px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .conn{background:var(--card);border:1px solid var(--line);border-radius:12px;
+        padding:14px 16px;margin-bottom:10px}
+  .conn .top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .conn .name{font-weight:650;font-size:15.5px}
+  .conn .name small{color:var(--ink-soft);font-weight:500}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{font-size:11.5px;font-weight:650;padding:3px 9px;border-radius:20px;white-space:nowrap}
+  .copybtn{font:inherit;font-size:11.5px;font-weight:650;border:1px solid var(--line);
+    background:var(--card);color:var(--ink-soft);border-radius:20px;padding:2px 10px;cursor:pointer;white-space:nowrap}
+  .copybtn:hover{background:var(--accent-soft);color:var(--accent)}
+  .chip.status-inprogress{background:var(--accent-soft);color:var(--accent)}
+  .chip.status-blocked{background:var(--red-bg);color:var(--red)}
+  .chip.status-onhold,.chip.status-notstarted{background:#eee;color:#555}
+  .chip.idle-ok{background:var(--accent-soft);color:var(--accent)}
+  .chip.idle-warn{background:var(--amber-bg);color:var(--amber)}
+  .chip.idle-bad{background:var(--red-bg);color:var(--red)}
+  .rail{display:flex;gap:4px;margin:12px 0 6px}
+  .rail .seg{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0;position:relative;cursor:pointer}
+  .rail .seg i{display:block;height:7px;border-radius:4px}
+  .rail .seg.cur i{box-shadow:0 0 0 2px rgba(27,39,51,.3)}
+  .rail .seg span{font-size:9.5px;line-height:1.15;color:var(--ink-soft);text-align:center;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rail .seg.todo span{color:#b6bfc7}
+  .rail .seg.cur span{color:var(--ink);font-weight:700}
+  .rail .seg .tip{display:none;position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
+    background:var(--ink);color:#eef3f7;font-size:12px;line-height:1.45;padding:8px 11px;border-radius:8px;
+    width:max-content;max-width:250px;white-space:normal;text-align:left;z-index:5;
+    box-shadow:0 4px 14px rgba(0,0,0,.28);user-select:text;cursor:text}
+  .rail .seg .tip::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
+    border:6px solid transparent;border-top-color:var(--ink)}
+  .rail .seg .tip small{display:block;color:#9fb0bf;margin-top:5px;font-size:10.5px;user-select:none}
+  .rail .seg:hover .tip{display:block}
+  .rail .seg:first-child .tip{left:0;transform:none}
+  .rail .seg:last-child .tip{left:auto;right:0;transform:none}
+  @media(max-width:600px){ .rail .seg span{display:none} }
+  .stageline{font-size:12.5px;color:var(--ink-soft);margin-bottom:8px}
+  .stageline b{color:var(--ink)}
+  .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px 16px;
+        font-size:13px;color:var(--ink-soft);margin-top:8px}
+  .meta4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  @media(max-width:600px){ .meta4{grid-template-columns:1fr 1fr} }
+  .meta b{color:var(--ink);font-weight:600}
+  .meta .dt,.dt{font-family:var(--mono);font-size:12.5px}
+  .aibox{margin-top:10px;border-left:3px solid var(--blue);background:var(--blue-bg);
+         border-radius:0 8px 8px 0;padding:8px 12px;font-size:13px}
+  .aibox .pend{font-weight:650;color:var(--blue)}
+  .aibox .due-ok{color:var(--accent);font-weight:650}
+  .aibox .due-warn{color:var(--amber);font-weight:700}
+  .aibox .due-late{color:#c2410c;font-weight:700}
+  .aibox .due-over{color:var(--red);font-weight:700}
+  .aibox .none{color:var(--ink-soft);font-style:italic}
+  details.ailist{margin-top:6px;font-size:12.5px;overflow-x:auto}
+  details.ailist summary{cursor:pointer;color:var(--blue);font-weight:600}
+  .aitable{display:grid;grid-template-columns:minmax(140px,1fr) max-content max-content max-content max-content;
+    gap:4px 16px;margin:8px 0 2px;align-items:baseline}
+  .aitable .airow{display:contents}
+  .aitable .head span{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft)}
+  .aitable .num{text-align:right}
+  .ainote{font-size:11px;color:var(--ink-soft);font-style:italic;margin-top:4px}
+  .cmt{cursor:help;font-size:12px;margin-left:2px}
+  #cmtpop{display:none;position:fixed;background:var(--ink);color:#eef3f7;font-size:12px;line-height:1.5;
+    padding:8px 11px;border-radius:8px;max-width:320px;white-space:pre-wrap;z-index:99;
+    box-shadow:0 4px 14px rgba(0,0,0,.28);pointer-events:none}
+  #cmtpop small{display:block;color:#9fb0bf;margin-top:5px;font-size:10.5px;white-space:normal}
+  .prodhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+  .prodhead button{font:inherit;font-weight:700;border:1px solid var(--line);background:var(--card);
+        border-radius:8px;padding:6px 12px;cursor:pointer}
+  .prodhead select.mon{font-family:var(--mono);font-weight:700;font-size:15px;min-width:0;padding:6px 10px}
+  .prodcount{font-size:13px;color:var(--ink-soft)}
+  .prodcount b{color:var(--ink);font-size:16px}
+  .bars{display:flex;align-items:flex-end;gap:6px;height:110px;background:var(--card);
+        border:1px solid var(--line);border-radius:10px;padding:12px 12px 26px;margin-bottom:12px}
+  .barcol{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;
+          height:100%;position:relative;cursor:pointer}
+  .barcol .bar{width:70%;max-width:34px;background:#c9d6d1;border-radius:4px 4px 0 0;min-height:2px}
+  .barcol.sel .bar{background:var(--accent)}
+  .barcol .lbl{position:absolute;bottom:-20px;font-size:10px;font-family:var(--mono);color:var(--ink-soft)}
+  .barcol .val{font-size:10.5px;font-family:var(--mono);color:var(--ink-soft);margin-bottom:2px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+        border-radius:10px;overflow:hidden;font-size:13px}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);
+     text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);background:#fafbf9}
+  td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.dt{white-space:nowrap}
+  .tag{font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:10px}
+  .tag.r{background:var(--accent-soft);color:var(--accent)}
+  .tag.p{background:var(--amber-bg);color:var(--amber)}
+  .empty{color:var(--ink-soft);font-style:italic;padding:14px}
+  a.lnk{color:inherit;text-decoration:underline dotted;text-underline-offset:2px}
+  a.lnk:hover{color:var(--blue);text-decoration:underline solid}
+  @media(max-width:600px){ .meta{grid-template-columns:1fr 1fr} th:nth-child(5),td:nth-child(5){display:none} }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div>
+    <h1>Analyst Connectivity Dashboard</h1>
+    <div class="sub">Data as of <span id="gen"></span></div>
+  </div>
+  <div class="upload">
+    <label for="files">&#8682; Update data (upload CR / AI / OE reports)</label>
+    <input id="files" type="file" accept=".xlsx,.xls" multiple style="display:none">
+    <div id="upmsg"></div>
+  </div>
+</div></header>
+<div class="wrap">
+  <div class="toolbar">
+    <label for="emp" style="font-weight:650">Employee</label>
+    <input id="emp" list="emplist" placeholder="Type to search names&hellip;" autocomplete="off">
+    <datalist id="emplist"></datalist>
+    <button id="repbtn">&#128196; Generate report</button>
+  </div>
+  <div class="kpis" id="kpis"></div>
+
+  <h2>In-progress connections</h2>
+  <div id="conns"></div>
+
+  <h2 id="othertoggle" style="cursor:pointer;user-select:none"><span id="othercaret">&#9656;</span> Other open action items <span id="othercount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; on this analyst's other CRs, or requested by them &middot; click to expand</span></h2>
+  <div id="otherais" style="display:none"></div>
+
+  <h2>In-progress OE requests</h2>
+  <div id="oes"></div>
+
+  <h2>Monthly production <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; counted on Ready-for-Production date (Production date if RFP is empty)</span></h2>
+  <div class="prodhead">
+    <button id="prev">&#8592;</button><select class="mon" id="mon"></select><button id="next">&#8594;</button>
+    <div class="prodcount" id="prodcount"></div>
+  </div>
+  <div class="bars" id="bars"></div>
+  <div id="prodtable"></div>
+</div>
+<div id="cmtpop"></div>
+<div id="repmodal"><div class="repbox">
+  <div class="rephead"><b id="reptitle">Report</b>
+    <button id="repcopy">Copy</button><button id="repdl">Download .txt</button><button id="repclose">Close</button></div>
+  <textarea id="reptext" readonly></textarea>
+</div></div>
+<script>
+const RAW = __RAW__;
+const STAGES = ["Pending Start","Requirements Gathering","Resource Assignment",
+  "Dataset Validation","Mapping","Testing","Ready for Production","Production"];
+const STAGE_SHORT = ["Pending","Req. Gathering","Resource Asgmt",
+  "Validation","Mapping","Testing","Ready for Prod","Production"];
+const STAGE_COLORS = ["#9aa5b1","#5e81ac","#4472a4","#1f7f8f",
+  "#12917f","#469a5b","#b26a00","#0f6f5c"];
+const STAGE_COLS = ["Created Date","Requirements Gathering","Resource Assignment",
+  "Dataset Validation","Mapping","Testing","Ready For Production","Production"];
+const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
+const MS = {"Requirements Gathering":"RG","Resource Assignment":"RA","Dataset Validation":"DV",
+  "Mapping":"Mapping","Testing":"Testing","Ready For Production":"Ready for Prod",
+  "Production":"Production","First Test File":"First test file","First Production File":"First prod file"};
+const $ = s => document.querySelector(s);
+const fmt = d => d || '—';
+const BASE = 'https://d24ep0r8pqsi0a.cloudfront.net';
+const crUrl = id => `${BASE}/ConnectivityRequests/ViewConnectivityRequest/${id}`;
+const aiUrl = (crId, aiId) => `${BASE}/ActionItems/ViewConnectivityRequest/${crId}/ViewActionItem/${aiId}`;
+const oeUrl = (crId, oeId) => `${BASE}/OERequests/ViewConnectivityRequest/${crId}/ViewOERequest/${oeId}`;
+const OE_STAGES = ["Pending Start","Resource Assignment","Requirement Gathering",
+  "Waiting for OE Data","Sending OE File","Get Carrier Confirmation","Completed"];
+const OE_SHORT = ["Pending","Resource Asgmt","Req. Gathering",
+  "Waiting Data","Sending File","Carrier Conf.","Completed"];
+const OE_COLORS = ["#9aa5b1","#5e81ac","#4472a4","#1f7f8f","#12917f","#b26a00","#0f6f5c"];
+
+// ---------- date + text helpers ----------
+function toISO(v){
+  if(v==null || v==='') return null;
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  if(typeof v==='number'){ // excel serial
+    const d = new Date(Math.round((v-25569)*86400*1000));
+    return isNaN(d)?null:d.toISOString().slice(0,10);
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return m[1]+'-'+m[2]+'-'+m[3];
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m) return m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+  const d = new Date(s);
+  return isNaN(d)?null:d.toISOString().slice(0,10);
+}
+const STOP = /\b(inc|llc|llp|ltd|co|corp|corporation|company|the|of)\b/g;
+function norm(s){
+  if(s==null) return '';
+  return String(s).toLowerCase().replace(/[^a-z0-9 ]/g,' ')
+    .replace(STOP,'').replace(/\s+/g,' ').trim();
+}
+const txt = v => (v==null ? '' : String(v).trim());
+const daysBetween = (iso, today) => Math.floor((today - new Date(iso+'T00:00:00Z'))/86400000);
+// working days in the same span — Friday & Saturday are the weekend
+function workDaysBetween(iso, today){
+  const start = new Date(iso+'T00:00:00Z');
+  const days = Math.floor((today - start)/86400000);
+  if(days <= 0) return 0;
+  const weeks = Math.floor(days/7);
+  let wd = weeks*5, dow = start.getUTCDay();
+  for(let k = days - weeks*7; k > 0; k--){
+    dow = (dow + 1) % 7;
+    if(dow !== 5 && dow !== 6) wd++;   // 5 = Friday, 6 = Saturday
+  }
+  return wd;
+}
+const dur = (d, wd) => d!=null ? `${d}d (${wd}wd)` : '—';
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+// responsible party for an AI = its CurrentlyPendingOn value
+const respOf = i => i.on || '—';
+// speech-bubble icon whose hover popup shows the AI's last comment
+const cmtPop = i => {
+  if(!i.cmt) return '';
+  // the AI system stores line breaks as <br/> tags; render them as real breaks
+  let c = i.cmt.replace(/<br\s*\/?>/gi, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  if(!c) return '';
+  if(c.length>500) c = c.slice(0,500)+'…';
+  const meta = [i.owner, i.last].filter(Boolean).join(' · ');
+  return ` <span class="cmt" data-c="${esc(c)}" data-m="${esc(meta)}">&#128172;</span>`;
+};
+// exact key, and a fallback key with any "(...)" stripped from the carrier so
+// "Third Party (Optum)" on an AI still catches a CR filed as "Third Party"
+const normCarrier = k => norm(String(k==null?'':k).replace(/\([^)]*\)/g,' '));
+const exactKey = (client, carrier) => norm(client)+'||'+norm(carrier);
+const baseKey = (client, carrier) => norm(client)+'||'+normCarrier(carrier);
+
+// ---------- fuzzy matching (the AI and CR systems spell names differently) ----------
+// clients: exports truncate long names, so accept a prefix when both are long
+const clientAlike = (a,b) => !!(a && b && (a===b ||
+  ((a.startsWith(b) || b.startsWith(a)) && Math.min(a.length,b.length)>=20)));
+// carriers: tolerate spacing/plural drift ("SunLife"/"Sun Life", "Pet Benefits"/
+// "Pet Benefit"), acronyms ("BCBS"/"Blue Cross Blue Shield", "VSP"/"Vision
+// Service Plan"), a single-word name appearing as a token ("Optum"/"HSA w/Optum"),
+// and a shared distinctive first word ("Cigna/CBS"/"Cigna Healthcare")
+function carrierAlike(a,b){
+  if(!a || !b) return false;
+  if(a===b) return true;
+  const sq = s => s.split(' ').map(w=>w.replace(/s$/,'')).join('');
+  const A = sq(a), B = sq(b);
+  if(Math.min(A.length,B.length)>=4 && (A.startsWith(B) || B.startsWith(A))) return true;
+  const acr = s => { const w = s.split(' '); return w.length>1 ? w.map(x=>x[0]).join('') : ''; };
+  const A0 = a.replace(/ /g,''), B0 = b.replace(/ /g,'');
+  const aa = acr(a), ab = acr(b);
+  if(aa.length>=3 && B0.startsWith(aa)) return true;
+  if(ab.length>=3 && A0.startsWith(ab)) return true;
+  if(aa.length===2 && B0.startsWith(aa) && B0.length<=4) return true;
+  if(ab.length===2 && A0.startsWith(ab) && A0.length<=4) return true;
+  const ta = a.split(' '), tb = b.split(' ');
+  if(ta.length===1 && a.length>=3 && tb.includes(a)) return true;
+  if(tb.length===1 && b.length>=3 && ta.includes(b)) return true;
+  if(ta[0].length>=5 && ta[0]===tb[0]) return true;
+  return false;
+}
+const aiAlike = (i, cnc, cnk) => clientAlike(i.nc, cnc) && carrierAlike(i.nk, cnk);
+
+// migration flag: a dedicated column when the CR report has one, else infer
+// from the request type; null = the report carries no migration info
+const MIG_COLS = ['Migration','IsMigration','Is Migration','Migration Request','Migration Type'];
+function migOf(r){   // the platform migrated from ("eBenefits Network"), "No", or null
+  for(const col of MIG_COLS){
+    const v = txt(r[col]);
+    if(v) return v;
+  }
+  return /migration/i.test(txt(r['Request Type'])) ? 'Yes' : null;
+}
+const isMig = m => !!m && !['no','false','0','n','none','-'].includes(String(m).toLowerCase());
+const migLabel = m => m==null ? '—' : m;
+
+// ---------- core processing (used for both embedded data and uploads) ----------
+function process(crRows, aiRows, oeRows, generated){
+  const today = new Date(generated+'T00:00:00Z');
+
+  // all open AIs, keyed by client+carrier; pending clock = last comment date, else start date
+  const aiItems = [];
+  for(const r of aiRows){
+    // comments from "System Admin" are automated due-date reminders — ignore
+    // the comment and its date entirely
+    const isBot = /^system\s*admin$/i.test(txt(r['LastCommentOwner']));
+    const last = isBot ? null : toISO(r['LastCommentDate']);
+    const start = toISO(r['StartDate']);
+    const eff = last || start;
+    aiItems.push({
+      id: r['ActionItemID'],
+      crid: r['ConnectivityRequestID'] ?? null,
+      client: txt(r['ClientName']), carrier: txt(r['CarrierName']),
+      key: exactKey(r['ClientName'], r['CarrierName']),
+      bkey: baseKey(r['ClientName'], r['CarrierName']),
+      nc: norm(r['ClientName']), nk: normCarrier(r['CarrierName']),
+      due: toISO(r['DueDate'] ?? r['Due Date'] ?? r['DueOn']),
+      on: txt(r['CurrentlyPendingOn'])||null,
+      title: txt(r['ActionItemTitle'])||null,
+      owner: isBot ? null : txt(r['LastCommentOwner'])||null,
+      req: txt(r['Requestor'])||null,
+      cmt: isBot ? null : txt(r['LastComment'])||null,
+      last, start, eff,
+      days: eff ? daysBetween(eff, today) : null,
+      wdays: eff ? workDaysBetween(eff, today) : null,
+      noComment: !last,
+      used: false, cardTcs: []
+    });
+  }
+  aiItems.sort((a,b)=>String(a.eff).localeCompare(String(b.eff)));
+  // AIs with a ConnectivityRequestID link by id (authoritative); only AIs
+  // without one (older report formats) fall back to name matching
+  const aiByCr = {}, aiByKey = {}, aiByBase = {}, aiNamed = [];
+  for(const it of aiItems){
+    if(it.crid!=null){ (aiByCr[it.crid] = aiByCr[it.crid]||[]).push(it); continue; }
+    aiNamed.push(it);
+    (aiByKey[it.key] = aiByKey[it.key]||[]).push(it);
+    (aiByBase[it.bkey] = aiByBase[it.bkey]||[]).push(it);
+  }
+
+  const dateCols = ['Created Date','Assignment Date',...Object.keys(MS)];
+  const conns = [];
+  for(const r of crRows){
+    if(!ACTIVE.has(txt(r['Status'])) || !txt(r['Technical Contact'])) continue;
+    const dates = dateCols.map(c=>toISO(r[c])).filter(Boolean);
+    const lastCr = dates.length ? dates.sort().at(-1) : null;
+    const byId = aiByCr[r['Request ID']] || [];
+    let named = aiByKey[exactKey(r['Customer'], r['Carrier'])] || [];
+    if(!named.length) named = aiByBase[baseKey(r['Customer'], r['Carrier'])] || [];
+    if(!named.length){
+      const cnc = norm(r['Customer']), cnk = normCarrier(r['Carrier']);
+      named = aiNamed.filter(i=>aiAlike(i, cnc, cnk));
+    }
+    const items = byId.concat(named).sort((a,b)=>String(a.eff).localeCompare(String(b.eff)));
+    let ai = null, lastAi = null;
+    if(items.length){
+      const cardCr = {id: r['Request ID'], tc: txt(r['Technical Contact'])||null,
+        customer: txt(r['Customer']), carrier: txt(r['Carrier']), status: txt(r['Status'])};
+      items.forEach(i=>{ i.used=true; i.cardTcs.push(cardCr.tc); if(!i.cr) i.cr = cardCr; });
+      const latest = items.at(-1);
+      lastAi = latest.eff;
+      ai = {count: items.length, latest, items};
+    }
+    const lastAny = [lastCr,lastAi].filter(Boolean).sort().at(-1) || null;
+    const milestones = {};
+    for(const [col,label] of Object.entries(MS)){
+      // Testing milestone follows the same rule as the rail: First Test File
+      // date when recorded, else the Testing column date
+      const v = col==='Testing' ? (toISO(r['First Test File']) || toISO(r['Testing'])) : toISO(r[col]);
+      if(v) milestones[label]=v;
+    }
+    // Testing phase starts at the First Test File date, falling back to the
+    // Testing column when no test file date is recorded
+    const stageDates = STAGE_COLS.map(col=>col?toISO(r[col]):null);
+    const ti = STAGE_COLS.indexOf('Testing');
+    stageDates[ti] = toISO(r['First Test File']) || stageDates[ti];
+    conns.push({
+      id: r['Request ID'], tc: txt(r['Technical Contact']),
+      carrier: txt(r['Carrier']), customer: txt(r['Customer']),
+      instance: txt(r['Instance']), type: txt(r['Request Type']), mig: migOf(r),
+      stage: txt(r['Stage']), status: txt(r['Status']), isolved: txt(r['iSolved Contact']),
+      assigned: toISO(r['Assignment Date']),
+      stageDates,
+      noTestFile: !toISO(r['First Test File']),
+      milestones, lastCr, ai, lastAny,
+      idleDays: lastAny ? daysBetween(lastAny, today) : null,
+      idleWdays: lastAny ? workDaysBetween(lastAny, today) : null
+    });
+  }
+
+  // production: prioritize Ready For Production date, fall back to Production
+  const production = [];
+  for(const r of crRows){
+    const rfp = toISO(r['Ready For Production']), pr = toISO(r['Production']);
+    const use = rfp || pr;
+    if(!use) continue;
+    production.push({
+      _i: production.length,
+      id: r['Request ID'], tc: txt(r['Technical Contact'])||null,
+      carrier: txt(r['Carrier']), customer: txt(r['Customer']),
+      status: txt(r['Status']), date: use, rfp, prod: pr,
+      month: use.slice(0,7)
+    });
+  }
+
+  // OE requests: active ones assigned to a technical contact
+  const oes = [];
+  for(const r of (oeRows||[])){
+    if(!ACTIVE.has(txt(r['Status'])) || !txt(r['TechnicalContact'])) continue;
+    oes.push({
+      id: r['OERequestID'], crId: r['ConnectivityRequestID'],
+      tc: txt(r['TechnicalContact']), client: txt(r['ClientName']), carrier: txt(r['CarrierName']),
+      type: txt(r['RequestType']), status: txt(r['Status']), stage: txt(r['Stage']),
+      pysd: toISO(r['PlanYearStartDate']), expected: toISO(r['ClientDataExpectedDate']),
+      dataReady: toISO(r['DataReadyDate']), submitted: toISO(r['OEFileSubmissionDate']),
+      isolved: txt(r['IsolvedContact']), dataChanges: txt(r['ISolvedDataChanges']),
+      groupStructure: txt(r['UpdatedGroupStructure']),
+      canResume: txt(r['CanResumeProductionPYSD']), resumed: txt(r['ResumedProduction']),
+      draft: Number(r['IsDraftOERequest'])===1,
+      created: toISO(r['Created']), createdBy: txt(r['CreatedBy'])
+    });
+  }
+
+  // resolve a CR for every AI not already tied to a card above: by CR id
+  // first, then by name (live / cancelled / unassigned CRs)
+  const crById = {}, crIx = {}, crIxB = {}, crInfos = [];
+  for(const r of crRows){
+    const info = {id: r['Request ID'], tc: txt(r['Technical Contact'])||null,
+      customer: txt(r['Customer']), carrier: txt(r['Carrier']), status: txt(r['Status']),
+      nc: norm(r['Customer']), nk: normCarrier(r['Carrier'])};
+    crInfos.push(info);
+    crById[info.id] = info;
+    const k = exactKey(r['Customer'], r['Carrier']), bk = baseKey(r['Customer'], r['Carrier']);
+    if(!crIx[k] || (!crIx[k].tc && info.tc)) crIx[k] = info;
+    if(!crIxB[bk] || (!crIxB[bk].tc && info.tc)) crIxB[bk] = info;
+  }
+  for(const it of aiItems){
+    if(it.cr) continue;
+    let cr = (it.crid!=null ? crById[it.crid] : null)
+          || crIx[it.key] || crIxB[it.bkey] || null;
+    if(!cr){
+      const f = crInfos.filter(x=>aiAlike(it, x.nc, x.nk));
+      cr = f.find(x=>x.tc) || f[0] || null;
+    }
+    it.cr = cr;
+  }
+
+  const tcSet = new Set(crInfos.map(x=>x.tc).filter(Boolean));
+  const employees = [...new Set([...conns.map(c=>c.tc), ...production.map(p=>p.tc).filter(Boolean),
+    ...oes.map(o=>o.tc), ...aiItems.map(i=>i.cr&&i.cr.tc).filter(Boolean),
+    ...aiItems.map(i=>i.req).filter(rq=>rq && tcSet.has(rq))])].sort();
+  return {generated, connections: conns, production, oes, aiAll: aiItems, employees};
+}
+
+// ---------- state + rendering ----------
+// restore an upload saved in this browser only if it is strictly newer than
+// the embedded data; otherwise drop the stale copy so a fresh build starts clean
+RAW.oe = RAW.oe || [];
+try{
+  const saved = JSON.parse(localStorage.getItem('analystDash')||'null');
+  if(saved && saved.generated > RAW.generated){
+    RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
+    if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
+    const m = $('#upmsg'); m.className='ok';
+    m.textContent = `Using data uploaded ${saved.generated} (saved in this browser)`;
+  } else if(saved){
+    localStorage.removeItem('analystDash');
+  }
+}catch(e){}
+let DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
+let curEmp = null, curMonth = null;
+
+const stageIdx = s => { let t = String(s).toLowerCase();
+  if(t==='obtain customer dataset') t = 'dataset validation'; // stage removed from the rail
+  const i = STAGES.findIndex(x=>x.toLowerCase()===t); return i<0?0:i; };
+const statusCls = s => 'status-'+s.toLowerCase().replace(/\s+/g,'');
+const idleCls = n => n==null?'idle-ok':(n>=14?'idle-bad':(n>=7?'idle-warn':'idle-ok'));
+
+function initSelectors(){
+  $('#gen').textContent = DATA.generated;
+  const activeCounts = {};
+  DATA.connections.forEach(c=>activeCounts[c.tc]=(activeCounts[c.tc]||0)+1);
+  const emps = [...DATA.employees].sort((a,b)=>{
+    const d = (activeCounts[b]?1:0)-(activeCounts[a]?1:0);
+    return d!==0?d:a.localeCompare(b);
+  });
+  $('#emplist').innerHTML = emps.map(e=>
+    `<option value="${e}">${activeCounts[e]?`${activeCounts[e]} active`:''}</option>`).join('');
+  if(!emps.includes(curEmp)) curEmp = emps[0];
+  $('#emp').value = curEmp;
+  const months = [...new Set(DATA.production.map(p=>p.month))].sort();
+  if(!months.includes(curMonth)) curMonth = months.at(-1) || null;
+}
+
+function render(){
+  const conns = DATA.connections.filter(c=>c.tc===curEmp)
+      .sort((a,b)=>(b.idleDays??-1)-(a.idleDays??-1));
+  const oes = (DATA.oes||[]).filter(o=>o.tc===curEmp)
+      .sort((a,b)=>String(a.pysd||'9999').localeCompare(String(b.pysd||'9999')));
+  const months = [...new Set(DATA.production.map(p=>p.month))].sort();
+  const thisMonth = months.at(-1);
+  const mine = DATA.production.filter(p=>p.tc===curEmp);
+  const others = otherFor(curEmp);
+  const openAIs = conns.reduce((s,c)=>s+(c.ai?c.ai.count:0),0);
+
+  $('#kpis').innerHTML = [
+    [conns.length,'Active connections'],
+    [conns.filter(c=>c.status==='On Hold').length,'On hold'],
+    [openAIs,'Open action items'],
+    [oes.length,'In-progress OEs'],
+    [mine.filter(p=>p.month===thisMonth).length,'Production this month'],
+  ].map(([v,l])=>`<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('');
+
+  $('#conns').innerHTML = conns.length ? conns.map(connCard).join('')
+      : '<div class="empty">No in-progress connections for this employee.</div>';
+  $('#othercount').textContent = `(${others.length})`;
+  $('#otherais').innerHTML = others.length ? aiTable(others)
+      : '<div class="empty">No other open action items for this employee.</div>';
+  $('#oes').innerHTML = oes.length ? oes.map(oeCard).join('')
+      : '<div class="empty">No in-progress OE requests for this employee. Upload the OE report above to load OE data.</div>';
+  renderProd(months, mine);
+}
+
+// open AIs shown in the "other" section for an employee: items not already on
+// one of their connection cards, sitting on their CRs or requested by them
+function otherFor(emp){
+  return (DATA.aiAll||[]).filter(i =>
+      !i.cardTcs.includes(emp) && ((i.cr && i.cr.tc===emp) || i.req===emp))
+    .sort((a,b)=>(b.days??-1)-(a.days??-1));
+}
+
+function aiTable(items){
+  const crIdOf = a => a.cr ? a.cr.id : (a.crid!=null ? a.crid : null);
+  const aiCell = a => crIdOf(a)!=null && a.id!=null
+    ? `<a class="lnk" href="${aiUrl(crIdOf(a),a.id)}" target="_blank">${a.title||('AI #'+a.id)}</a>`
+    : (a.title||(a.id!=null?'AI #'+a.id:'—'));
+  return `<table>
+    <tr><th>Client — Carrier</th><th>CR</th><th>CR status</th><th>Action item</th><th>Responsible</th><th>Last activity</th><th>Days pending</th></tr>
+    ${items.map(a=>`<tr>
+      <td>${a.client} — ${a.carrier}</td>
+      <td class="dt">${crIdOf(a)!=null?`<a class="lnk" href="${crUrl(crIdOf(a))}" target="_blank">#${crIdOf(a)}</a>`:'—'}</td>
+      <td>${a.cr?a.cr.status:'—'}</td>
+      <td>${aiCell(a)}${cmtPop(a)}</td>
+      <td>${respOf(a)}</td>
+      <td class="dt">${a.eff||'—'}${a.noComment?'*':''}</td>
+      <td class="dt">${dur(a.days,a.wdays)}</td></tr>`).join('')}
+  </table>
+  ${items.some(a=>a.noComment)?'<div class="ainote">* no comments yet — dates and days pending count from when the AI was created.</div>':''}`;
+}
+
+function tipsFor(stages, sd, idx){
+  const today = new Date(DATA.generated+'T00:00:00Z');
+  const nextStart = i => { for(let j=i+1;j<sd.length;j++) if(sd[j]) return sd[j]; return null; };
+  return stages.map((s,i)=>{
+    const start = sd[i];
+    if(start){
+      const end = nextStart(i);
+      if(end){ const e = new Date(end+'T00:00:00Z');
+        return `${s}: started ${start} — took ${dur(daysBetween(start,e),workDaysBetween(start,e))} — next phase ${end}`; }
+      if(i>=idx && i<stages.length-1) return `${s}: started ${start} — ${dur(daysBetween(start,today),workDaysBetween(start,today))} so far (in progress)`;
+      return `${s}: started ${start}`;
+    }
+    if(i===idx) return `${s}: in progress`;
+    return i<idx ? `${s}: done` : `${s}: not started`;
+  });
+}
+
+const TESTING_IDX = STAGES.indexOf('Testing');
+// a CR that reached Testing without a First Test File date gets a * marker
+const testStar = c => c.noTestFile && stageIdx(c.stage) >= TESTING_IDX;
+
+function stageTips(c){
+  const tips = tipsFor(STAGES, c.stageDates || [], stageIdx(c.stage));
+  if(testStar(c)) tips[TESTING_IDX] += ' · * no test file sent yet';
+  return tips;
+}
+
+function connCard(c){
+  const idx = stageIdx(c.stage);
+  const today = new Date(DATA.generated+'T00:00:00Z');
+  const tips = stageTips(c);
+  const rail = STAGES.map((s,i)=>`<div class="seg ${i<idx?'done':(i===idx?'cur':'todo')}" data-tip="${tips[i]}">
+      <div class="tip">${tips[i]}<small>click bar to copy &middot; or select this text</small></div>
+      <i style="background:${STAGE_COLORS[i]}${i>idx?';opacity:.22':''}"></i><span>${STAGE_SHORT[i]}${i===TESTING_IDX&&testStar(c)?'*':''}</span></div>`).join('');
+  const ms = Object.entries(c.milestones).map(([k,v])=>`<div>${k} <b class="dt">${v}</b></div>`).join('');
+  let aibox;
+  if(c.ai){
+    const a = c.ai, L = a.latest;
+    const aiLink = i => i.id!=null ? `<a class="lnk" href="${aiUrl(c.id,i.id)}" target="_blank">${i.title||('AI #'+i.id)}</a>` : (i.title||'');
+    const dueCls = d => { const o = daysBetween(d, today);
+      return o<=0?'due-ok':(o<=5?'due-warn':(o<=10?'due-late':'due-over')); };
+    const dueTag = i => i.due ? ` &middot; due <span class="dt ${dueCls(i.due)}">${i.due}</span>` : '';
+    const list = `<div class="airow head"><span>Action item</span><span>Responsible</span><span>Last activity</span><span class="num">Days pending</span><span>Due date</span></div>`
+      + a.items.map(i=>`<div class="airow"><span>${aiLink(i)}${cmtPop(i)}</span><span class="pend">${respOf(i)}</span><span class="dt">${i.eff||'—'}${i.noComment?'*':''}</span><span class="dt num">${dur(i.days,i.wdays)}</span><span class="dt">${i.due?`<span class="${dueCls(i.due)}">${i.due}</span>`:'—'}</span></div>`).join('');
+    const note = a.items.some(i=>i.noComment)
+      ? '<div class="ainote">* no comments yet — dates and days pending count from when the AI was created.</div>' : '';
+    aibox = `<div class="aibox">
+      ${a.count} open AI${a.count>1?'s':''} &middot; latest: <b>${aiLink(L)}</b>${cmtPop(L)},
+      pending on <span class="pend">${L.on||'—'}</span> for <b>${dur(L.days,L.wdays)}</b>
+      &middot; ${L.noComment?`created <span class="dt">${fmt(L.eff)}</span> <i>· no comments yet</i>`:`last activity <span class="dt">${fmt(L.eff)}</span>${L.owner?` by ${L.owner}`:''}`}${dueTag(L)}
+      <details class="ailist"><summary>${a.count>1?'All open items':'Item details'}</summary><div class="aitable">${list}</div>${note}</details>
+    </div>`;
+  } else {
+    aibox = `<div class="aibox"><span class="none">No open action items linked to this client + carrier.</span></div>`;
+  }
+  return `<div class="conn">
+    <div class="top">
+      <div class="name"><a class="lnk" href="${crUrl(c.id)}" target="_blank">${c.carrier} <small>— ${c.customer}</small></a> <small class="dt">CR #${c.id}</small></div>
+      <div class="chips">
+        ${isMig(c.mig)?`<span class="chip" style="background:var(--blue-bg);color:var(--blue)">${/^yes$/i.test(c.mig)?'Migration':c.mig}</span>`
+          :(c.mig!=null?'<span class="chip" style="background:var(--accent-soft);color:var(--accent)">New Orders</span>':'')}
+        <span class="chip ${statusCls(c.status)}">${c.status}</span>
+        <span class="chip ${idleCls(c.idleDays)}">${c.idleDays==null?'no activity':dur(c.idleDays,c.idleWdays)+' since activity'}</span>
+        <button class="copybtn" data-copy="conn:${c.id}" title="Copy this connection's report">Copy</button>
+      </div>
+    </div>
+    <div class="rail">${rail}</div>
+    <div class="meta meta4">
+      <div>Stage <b>${c.stage} (${idx+1}/${STAGES.length})</b></div>
+      <div>Instance <b>${c.instance||'—'}</b></div>
+      <div>Migration <b>${migLabel(c.mig)}</b></div>
+      <div>Assigned <b class="dt">${fmt(c.assigned)}</b></div>
+      <div>Last CR update <b class="dt">${fmt(c.lastCr)}</b></div>
+      <div>Last activity (CR or AI) <b class="dt">${fmt(c.lastAny)}</b></div>
+      <div>isolved contact <b>${c.isolved||'—'}</b></div>
+      ${ms}
+    </div>
+    ${aibox}
+  </div>`;
+}
+
+const oeStageIdx = s => { const i = OE_STAGES.findIndex(x=>x.toLowerCase()===String(s).toLowerCase());
+  return i<0?0:i; };
+
+function oeStageTips(o){
+  // the OE report has no per-stage dates; map the ones it does have onto the
+  // stages they start: Created -> Pending Start, DataReadyDate -> Sending OE
+  // File, OEFileSubmissionDate -> Get Carrier Confirmation
+  const sd = [o.created, null, null, null, o.dataReady, o.submitted, null];
+  const tips = tipsFor(OE_STAGES, sd, oeStageIdx(o.stage));
+  if(o.expected) tips[3] += ` · client data expected ${o.expected}`;
+  return tips;
+}
+
+function oeCard(o){
+  const idx = oeStageIdx(o.stage);
+  const tips = oeStageTips(o);
+  const rail = OE_STAGES.map((s,i)=>`<div class="seg ${i<idx?'done':(i===idx?'cur':'todo')}" data-tip="${tips[i]}">
+      <div class="tip">${tips[i]}<small>click bar to copy &middot; or select this text</small></div>
+      <i style="background:${OE_COLORS[i]}${i>idx?';opacity:.22':''}"></i><span>${OE_SHORT[i]}</span></div>`).join('');
+  return `<div class="conn">
+    <div class="top">
+      <div class="name"><a class="lnk" href="${oeUrl(o.crId,o.id)}" target="_blank">${o.carrier} <small>— ${o.client}</small></a> <small class="dt">OE #${o.id} &middot; CR #${o.crId}</small></div>
+      <div class="chips">
+        ${o.draft?'<span class="chip status-notstarted">Draft</span>':''}
+        ${o.dataChanges==='Yes'?'<span class="chip idle-warn">iSolved data changes</span>':''}
+        ${o.groupStructure==='Yes'?'<span class="chip idle-warn">Updated group structure</span>':''}
+        <span class="chip ${statusCls(o.status)}">${o.status}</span>
+        <button class="copybtn" data-copy="oe:${o.id}" title="Copy this OE request's report">Copy</button>
+      </div>
+    </div>
+    <div class="rail">${rail}</div>
+    <div class="stageline">Stage <b>${o.stage}</b> (${idx+1}/${OE_STAGES.length}) &middot; ${o.type||''}</div>
+    <div class="meta">
+      <div>Plan year start <b class="dt">${fmt(o.pysd)}</b></div>
+      <div>Client data expected <b class="dt">${fmt(o.expected)}</b></div>
+      <div>Data ready <b class="dt">${fmt(o.dataReady)}</b></div>
+      <div>OE file submitted <b class="dt">${fmt(o.submitted)}</b></div>
+      <div>iSolved data changes <b>${o.dataChanges||'—'}</b></div>
+      <div>Updated group structure <b>${o.groupStructure||'—'}</b></div>
+      <div>Can resume prod before PYSD <b>${o.canResume||'—'}</b></div>
+      <div>Resumed production <b>${o.resumed||'—'}</b></div>
+      <div>isolved contact <b>${o.isolved||'—'}</b></div>
+      <div>Created <b class="dt">${fmt(o.created)}</b>${o.createdBy?` by ${o.createdBy}`:''}</div>
+    </div>
+  </div>`;
+}
+
+function renderProd(months, mine){
+  if(!months.length){ $('#bars').innerHTML=''; $('#mon').innerHTML='';
+    $('#prodcount').textContent=''; $('#prodtable').innerHTML='<div class="empty">No production dates found.</div>'; return; }
+  if(!months.includes(curMonth)) curMonth = months.at(-1);
+  const mi = months.indexOf(curMonth);
+  const start = Math.max(0, Math.min(mi-6, months.length-12));
+  const win = months.slice(start, start+12);
+  const counts = win.map(m=>mine.filter(p=>p.month===m).length);
+  const max = Math.max(1,...counts);
+  $('#bars').innerHTML = win.map((m,i)=>`
+    <div class="barcol ${m===curMonth?'sel':''}" data-m="${m}">
+      <div class="val">${counts[i]||''}</div>
+      <div class="bar" style="height:${(counts[i]/max)*100}%"></div>
+      <div class="lbl">${m.slice(2).replace('-','/')}</div>
+    </div>`).join('');
+  document.querySelectorAll('.barcol').forEach(el=>el.onclick=()=>{curMonth=el.dataset.m;render();});
+
+  const rows = mine.filter(p=>p.month===curMonth).sort((a,b)=>a.date.localeCompare(b.date));
+  const team = DATA.production.filter(p=>p.month===curMonth).length;
+  $('#mon').innerHTML = months.map(m=>`<option${m===curMonth?' selected':''}>${m}</option>`).join('');
+  $('#mon').onchange = e => { curMonth = e.target.value; render(); };
+  $('#prodcount').innerHTML = `<b>${rows.length}</b> for ${curEmp} &middot; team total ${team}`;
+  $('#prodtable').innerHTML = rows.length ? `<table>
+    <tr><th>CR</th><th>Customer - Carrier</th><th>Ready for Production date</th><th>Production date</th><th>Status</th><th></th></tr>
+    ${rows.map(p=>`<tr><td class="dt"><a class="lnk" href="${crUrl(p.id)}" target="_blank">#${p.id}</a></td><td>${p.customer} - ${p.carrier}</td>
+      <td class="dt">${p.rfp||'—'}</td>
+      <td class="dt">${p.prod||'—'}</td><td>${p.status}</td>
+      <td><button class="copybtn" data-copy="prod:${p._i}" title="Copy this production record">Copy</button></td></tr>`).join('')}
+  </table>` : '<div class="empty">No production CRs for this employee in this month.</div>';
+
+  const idx = months.indexOf(curMonth);
+  $('#prev').disabled = idx<=0; $('#next').disabled = idx>=months.length-1;
+  $('#prev').onclick=()=>{ if(idx>0){curMonth=months[idx-1];render();} };
+  $('#next').onclick=()=>{ if(idx<months.length-1){curMonth=months[idx+1];render();} };
+}
+
+// ---------- analyst report ----------
+function connReport(c){
+  const L = [];
+  L.push(`${c.carrier} — ${c.customer} (CR #${c.id})`);
+  L.push(crUrl(c.id));
+  L.push(`Status: ${c.status} · Stage: ${c.stage}${testStar(c)?' * (no test file sent yet)':''} · Migration: ${migLabel(c.mig)}`);
+  L.push(`Assigned: ${c.assigned||'—'} · Last CR update: ${c.lastCr||'—'} · Last activity: ${c.lastAny||'—'}${c.idleDays!=null?` (${dur(c.idleDays,c.idleWdays)} idle)`:''}`);
+  if(c.ai){
+    L.push(`Action items (${c.ai.count} open):`);
+    c.ai.items.forEach(i=>{
+      L.push(`  - ${i.title||('AI #'+i.id)} — responsible ${respOf(i)} · pending for ${dur(i.days,i.wdays)}`
+        +` · ${i.noComment?`created ${i.eff||'—'}, no comments yet`:`last activity ${i.eff||'—'}`}${i.due?` · due ${i.due}`:''}`);
+      if(i.id!=null) L.push(`    ${aiUrl(c.id,i.id)}`);
+    });
+  } else L.push(`Action items: none open`);
+  return L;
+}
+
+function prodReport(p){
+  return [
+    `${p.customer} — ${p.carrier} (CR #${p.id})`,
+    crUrl(p.id),
+    `Status: ${p.status} · Ready for Production: ${p.rfp||'—'} · Production: ${p.prod||'—'}`,
+    `Technical contact: ${p.tc||'—'}`
+  ];
+}
+
+function oeReport(o){
+  const idx = oeStageIdx(o.stage);
+  const L = [];
+  L.push(`${o.carrier} — ${o.client} (OE #${o.id} · CR #${o.crId})`);
+  L.push(oeUrl(o.crId, o.id));
+  L.push(`Status: ${o.status} · Stage: ${o.stage} (${idx+1}/${OE_STAGES.length})${o.type?` · ${o.type}`:''}${o.draft?' · Draft':''}`);
+  L.push(`Plan year start: ${o.pysd||'—'} · Client data expected: ${o.expected||'—'}`);
+  L.push(`Data ready: ${o.dataReady||'—'} · OE file submitted: ${o.submitted||'—'}`);
+  L.push(`iSolved data changes: ${o.dataChanges||'—'} · Updated group structure: ${o.groupStructure||'—'}`);
+  L.push(`Can resume production before PYSD: ${o.canResume||'—'} · Resumed production: ${o.resumed||'—'}`);
+  L.push(`isolved contact: ${o.isolved||'—'} · Technical contact: ${o.tc||'—'}`);
+  L.push(`Created: ${o.created||'—'}${o.createdBy?` by ${o.createdBy}`:''}`);
+  return L;
+}
+
+function buildReport(){
+  const conns = DATA.connections.filter(c=>c.tc===curEmp)
+      .sort((a,b)=>(b.idleDays??-1)-(a.idleDays??-1));
+  const others = otherFor(curEmp);
+  const sendingOes = (DATA.oes||[]).filter(o=>o.tc===curEmp
+      && String(o.stage).trim().toLowerCase()==='sending oe file')
+    .sort((a,b)=>String(a.pysd||'9999').localeCompare(String(b.pysd||'9999')));
+  const openAIs = conns.reduce((s,c)=>s+(c.ai?c.ai.count:0),0);
+  const L = [];
+  L.push(`CONNECTIVITY REPORT — ${curEmp}`);
+  L.push(`Data as of ${DATA.generated} · wd = working days (Friday & Saturday excluded)`);
+  L.push(`${conns.length} in-progress connections · ${conns.filter(c=>c.status==='On Hold').length} on hold · ${openAIs} open action items · ${others.length} open AIs on other CRs · ${sendingOes.length} OEs sending file`);
+  conns.forEach((c,n)=>{
+    L.push('');
+    L.push(`${'='.repeat(70)}`);
+    connReport(c).forEach((t,j)=>L.push(j===0 ? `${n+1}) ${t}` : `   ${t}`));
+  });
+  if(sendingOes.length){
+    L.push('');
+    L.push(`${'='.repeat(70)}`);
+    L.push(`OE REQUESTS — SENDING OE FILE (${sendingOes.length}):`);
+    sendingOes.forEach((o,n)=>{
+      L.push('');
+      oeReport(o).forEach((t,j)=>L.push(j===0 ? `${n+1}) ${t}` : `   ${t}`));
+    });
+  }
+  if(others.length){
+    L.push('');
+    L.push(`${'='.repeat(70)}`);
+    L.push(`OTHER OPEN ACTION ITEMS — on this analyst's other CRs or requested by them (${others.length}):`);
+    others.forEach(a=>{
+      const cid = a.cr ? a.cr.id : (a.crid!=null ? a.crid : null);
+      L.push(`  - ${a.title||('AI #'+a.id)} — ${a.client} / ${a.carrier}${cid!=null?` (CR #${cid}${a.cr?`, ${a.cr.status}`:''})`:''}`);
+      L.push(`    responsible ${respOf(a)} · pending for ${dur(a.days,a.wdays)} · ${a.noComment?`created ${a.eff||'—'}, no comments yet`:`last activity ${a.eff||'—'}`}${a.due?` · due ${a.due}`:''}`);
+      if(a.id!=null && cid!=null) L.push(`    ${aiUrl(cid,a.id)}`);
+    });
+  }
+  return L.join('\n');
+}
+$('#repbtn').onclick = () => {
+  $('#reptitle').textContent = `Report — ${curEmp} · ${DATA.generated}`;
+  $('#reptext').value = buildReport();
+  $('#repmodal').classList.add('open');
+};
+$('#repclose').onclick = () => $('#repmodal').classList.remove('open');
+$('#repmodal').onclick = e => { if(e.target.id==='repmodal') $('#repmodal').classList.remove('open'); };
+$('#repcopy').onclick = () => {
+  navigator.clipboard.writeText($('#reptext').value).then(()=>{
+    $('#repcopy').textContent='Copied!'; setTimeout(()=>$('#repcopy').textContent='Copy',1200);
+  });
+};
+$('#repdl').onclick = () => {
+  const blob = new Blob([$('#reptext').value], {type:'text/plain;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `report_${curEmp.replace(/[^\w]+/g,'_')}_${DATA.generated}.txt`;
+  a.click(); URL.revokeObjectURL(a.href);
+};
+
+// ---------- upload handling ----------
+// employee box is a searchable input: picking a datalist entry switches at
+// once; enter/blur also accepts a partial name and snaps back to a valid one
+const resolveEmp = v => {
+  const t = String(v||'').trim().toLowerCase();
+  if(!t) return null;
+  return DATA.employees.find(x=>x.toLowerCase()===t)
+      || DATA.employees.find(x=>x.toLowerCase().includes(t)) || null;
+};
+$('#emp').oninput = e => {
+  const hit = DATA.employees.find(x=>x===e.target.value);
+  if(hit && hit!==curEmp){ curEmp = hit; render(); }
+};
+$('#emp').onchange = e => {
+  const hit = resolveEmp(e.target.value);
+  if(hit && hit!==curEmp){ curEmp = hit; render(); }
+  e.target.value = curEmp;
+};
+$('#emp').onfocus = e => e.target.select();
+// collapse / expand the "Other open action items" section
+let otherOpen = false;
+$('#othertoggle').onclick = () => {
+  otherOpen = !otherOpen;
+  $('#otherais').style.display = otherOpen ? '' : 'none';
+  $('#othercaret').innerHTML = otherOpen ? '&#9662;' : '&#9656;';
+};
+// per-card / per-row copy buttons
+document.addEventListener('click', e => {
+  const b = e.target.closest('.copybtn');
+  if(!b || !b.dataset.copy || !navigator.clipboard) return;
+  const [kind, id] = b.dataset.copy.split(':');
+  let lines = null;
+  if(kind==='conn'){ const c = DATA.connections.find(x=>String(x.id)===id); if(c) lines = connReport(c); }
+  else if(kind==='prod'){ const p = DATA.production[+id]; if(p) lines = prodReport(p); }
+  else if(kind==='oe'){ const o = (DATA.oes||[]).find(x=>String(x.id)===id); if(o) lines = oeReport(o); }
+  if(!lines) return;
+  navigator.clipboard.writeText(lines.join('\n')).then(()=>{
+    b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy',1200);
+  });
+});
+// last-comment popup: fixed-position so table/scroll containers can't clip it
+document.addEventListener('mouseover', e => {
+  const pop = $('#cmtpop');
+  const t = e.target.closest ? e.target.closest('.cmt') : null;
+  if(!t){ pop.style.display='none'; return; }
+  pop.replaceChildren(document.createTextNode(t.dataset.c||''));
+  if(t.dataset.m){ const s = document.createElement('small'); s.textContent = t.dataset.m; pop.appendChild(s); }
+  pop.style.display='block';
+  const r = t.getBoundingClientRect();
+  let x = r.left + r.width/2 - pop.offsetWidth/2;
+  x = Math.max(8, Math.min(x, innerWidth - pop.offsetWidth - 8));
+  let y = r.top - pop.offsetHeight - 8;
+  if(y < 8) y = r.bottom + 8;
+  pop.style.left = x+'px'; pop.style.top = y+'px';
+});
+// click a progress-bar phase to copy its tooltip text
+document.addEventListener('click', e => {
+  const seg = e.target.closest('.rail .seg');
+  if(!seg || !seg.dataset.tip || e.target.closest('.tip')) return; // clicks inside the tooltip = selecting text
+  if(!navigator.clipboard) return;
+  navigator.clipboard.writeText(seg.dataset.tip).then(()=>{
+    const h = seg.querySelector('.tip small');
+    if(h){ const old = h.innerHTML; h.textContent = 'Copied!'; setTimeout(()=>h.innerHTML = old, 1200); }
+  });
+});
+$('#files').onchange = async e => {
+  const msg = $('#upmsg');
+  try{
+    if(typeof XLSX==='undefined') throw new Error('Excel parser unavailable — check internet connection.');
+    const files = [...e.target.files];
+    if(!files.length) return;
+    msg.className=''; msg.textContent='Reading…';
+    let newCr=null, newAi=null, newOe=null, names=[];
+    for(const f of files){
+      const wb = XLSX.read(await f.arrayBuffer(), {cellDates:true});
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
+      const cols = new Set(Object.keys(rows[0]||{}));
+      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; names.push(f.name+' (AI)'); }
+      else if(cols.has('OERequestID')){ newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); names.push(f.name+' (OE)'); }
+      else if(cols.has('Request ID')){ newCr=rows; names.push(f.name+' (CR)'); }
+      else names.push(f.name+' (unrecognized — skipped)');
+    }
+    if(!newCr && !newAi && !newOe) throw new Error('No file matched the CR, AI or OE report format.');
+    if(newCr) RAW.cr = newCr;
+    if(newAi) RAW.ai = newAi;
+    if(newOe) RAW.oe = newOe;
+    RAW.generated = new Date().toISOString().slice(0,10);
+    DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
+    try{ localStorage.setItem('analystDash', JSON.stringify(RAW)); }catch(e){}
+    initSelectors(); render();
+    msg.className='ok';
+    msg.textContent = `Updated: ${names.join(', ')} — ${DATA.connections.length} active connections, ${RAW.ai.length} AIs, ${DATA.oes.length} in-progress OEs`
+      + (newCr&&newAi&&newOe ? '' : ' (other reports kept from previous data)');
+  }catch(err){ msg.className='err'; msg.textContent='Update failed: '+err.message; }
+  e.target.value='';
+};
+
+initSelectors(); render();
+if(!RAW.cr.length && !RAW.ai.length){
+  const m = $('#upmsg'); m.className = 'ok';
+  m.textContent = 'No data loaded yet — use "Update data" above to upload the CR, AI and OE reports.';
+}
+</script>
+</body>
+</html>
+"""
+
+if __name__ == "__main__":
+    main()
