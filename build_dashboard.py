@@ -286,7 +286,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   <h2>In-progress connections</h2>
   <div id="conns"></div>
 
-  <h2 id="othertoggle" style="cursor:pointer;user-select:none"><span id="othercaret">&#9656;</span> Other open action items <span id="othercount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; on this analyst's other CRs, or requested by them &middot; click to expand</span></h2>
+  <h2 id="othertoggle" style="cursor:pointer;user-select:none"><span id="othercaret">&#9656;</span> Other open action items <span id="othercount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; on this analyst's other CRs, requested by them, or where they're the responsible party &middot; click to expand</span></h2>
   <div id="otherais" style="display:none"></div>
 
   <h2>In-progress OE requests</h2>
@@ -659,10 +659,11 @@ function render(){
 }
 
 // open AIs shown in the "other" section for an employee: items not already on
-// one of their connection cards, sitting on their CRs or requested by them
+// one of their connection cards, sitting on their CRs, requested by them, or
+// pending on them as the responsible party
 function otherFor(emp){
   return (DATA.aiAll||[]).filter(i =>
-      !i.cardTcs.includes(emp) && ((i.cr && i.cr.tc===emp) || i.req===emp))
+      !i.cardTcs.includes(emp) && ((i.cr && i.cr.tc===emp) || i.req===emp || i.on===emp))
     .sort((a,b)=>(b.days??-1)-(a.days??-1));
 }
 
@@ -920,7 +921,7 @@ function buildReport(){
   if(others.length){
     L.push('');
     L.push(`${'='.repeat(70)}`);
-    L.push(`OTHER OPEN ACTION ITEMS — on this analyst's other CRs or requested by them (${others.length}):`);
+    L.push(`OTHER OPEN ACTION ITEMS — on this analyst's other CRs, requested by them, or where they're the responsible party (${others.length}):`);
     others.forEach(a=>{
       const cid = a.cr ? a.cr.id : (a.crid!=null ? a.crid : null);
       L.push(`  - ${a.title||('AI #'+a.id)} — ${a.client} / ${a.carrier}${cid!=null?` (CR #${cid}${a.cr?`, ${a.cr.status}`:''})`:''}`);
