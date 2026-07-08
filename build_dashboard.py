@@ -265,7 +265,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <body>
 <header><div class="wrap">
   <div>
-    <h1>Analyst Connectivity Dashboard</h1>
+    <h1>Analyst Dashboard</h1>
     <div class="sub">Data as of <span id="gen"></span></div>
   </div>
   <div class="upload">
