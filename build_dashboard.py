@@ -590,20 +590,48 @@ function process(crRows, aiRows, oeRows, generated){
 }
 
 // ---------- state + rendering ----------
+// uploads are cached in IndexedDB (localStorage's ~5MB quota is too small for
+// full reports and fails silently); a copy saved by the old localStorage
+// version is migrated on first load
+const DB_KEY = 'analystDash';
+const idb = () => new Promise((res,rej)=>{
+  const rq = indexedDB.open('analystDashDB',1);
+  rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+  rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+});
+const dbGet = key => idb().then(db => new Promise((res,rej)=>{
+  const rq = db.transaction('kv').objectStore('kv').get(key);
+  rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+}));
+const dbSet = (key,val) => idb().then(db => new Promise((res,rej)=>{
+  const tx = db.transaction('kv','readwrite'); tx.objectStore('kv').put(val,key);
+  tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+}));
+const dbDel = key => idb().then(db => new Promise((res,rej)=>{
+  const tx = db.transaction('kv','readwrite'); tx.objectStore('kv').delete(key);
+  tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+}));
+
 // restore an upload saved in this browser only if it is strictly newer than
 // the embedded data; otherwise drop the stale copy so a fresh build starts clean
 RAW.oe = RAW.oe || [];
-try{
-  const saved = JSON.parse(localStorage.getItem('analystDash')||'null');
+async function restoreSaved(){
+  let saved = null;
+  try{ const s = await dbGet(DB_KEY); if(s) saved = JSON.parse(s); }catch(e){}
+  try{ // migrate a copy saved by the old localStorage version, then clear it
+    if(!saved) saved = JSON.parse(localStorage.getItem(DB_KEY)||'null');
+    localStorage.removeItem(DB_KEY);
+  }catch(e){}
   if(saved && saved.generated > RAW.generated){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
+    DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
     const m = $('#upmsg'); m.className='ok';
     m.textContent = `Using data uploaded ${saved.generated} (saved in this browser)`;
   } else if(saved){
-    localStorage.removeItem('analystDash');
+    dbDel(DB_KEY).catch(()=>{});
   }
-}catch(e){}
+}
 let DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
 let curEmp = null, curMonth = null;
 
@@ -1040,20 +1068,24 @@ $('#files').onchange = async e => {
     if(newOe) RAW.oe = newOe;
     RAW.generated = new Date().toISOString().slice(0,10);
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
-    try{ localStorage.setItem('analystDash', JSON.stringify(RAW)); }catch(e){}
+    let saveWarn = '';
+    try{ await dbSet(DB_KEY, JSON.stringify(RAW)); }
+    catch(e){ saveWarn = ` — warning: couldn't save for next visit (${e && e.message || e})`; }
     initSelectors(); render();
     msg.className='ok';
     msg.textContent = `Updated: ${names.join(', ')} — ${DATA.connections.length} active connections, ${RAW.ai.length} AIs, ${DATA.oes.length} in-progress OEs`
-      + (newCr&&newAi&&newOe ? '' : ' (other reports kept from previous data)');
+      + (newCr&&newAi&&newOe ? '' : ' (other reports kept from previous data)') + saveWarn;
   }catch(err){ msg.className='err'; msg.textContent='Update failed: '+err.message; }
   e.target.value='';
 };
 
-initSelectors(); render();
-if(!RAW.cr.length && !RAW.ai.length){
-  const m = $('#upmsg'); m.className = 'ok';
-  m.textContent = 'No data loaded yet — use "Update data" above to upload the CR, AI and OE reports.';
-}
+restoreSaved().catch(()=>{}).then(()=>{
+  initSelectors(); render();
+  if(!RAW.cr.length && !RAW.ai.length){
+    const m = $('#upmsg'); m.className = 'ok';
+    m.textContent = 'No data loaded yet — use "Update data" above to upload the CR, AI and OE reports.';
+  }
+});
 </script>
 </body>
 </html>
