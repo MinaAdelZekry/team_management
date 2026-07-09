@@ -221,7 +221,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .aibox .none{color:var(--ink-soft);font-style:italic}
   details.ailist{margin-top:6px;font-size:12.5px;overflow-x:auto}
   details.ailist summary{cursor:pointer;color:var(--blue);font-weight:600}
-  .aitable{display:grid;grid-template-columns:minmax(140px,1fr) max-content max-content max-content max-content;
+  .aitable{display:grid;grid-template-columns:minmax(140px,1fr) max-content max-content max-content max-content max-content;
     gap:4px 16px;margin:8px 0 2px;align-items:baseline}
   .aitable .airow{display:contents}
   .aitable .head span{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft)}
@@ -757,8 +757,8 @@ function connCard(c){
     const dueCls = d => { const o = daysBetween(d, today);
       return o<=0?'due-ok':(o<=5?'due-warn':(o<=10?'due-late':'due-over')); };
     const dueTag = i => i.due ? ` &middot; due <span class="dt ${dueCls(i.due)}">${i.due}</span>` : '';
-    const list = `<div class="airow head"><span>Action item</span><span>Responsible</span><span>Last activity</span><span class="num">Days pending</span><span>Due date</span></div>`
-      + a.items.map(i=>`<div class="airow"><span>${aiLink(i)}${cmtPop(i)}</span><span class="pend">${respOf(i)}</span><span class="dt">${i.eff||'—'}${i.noComment?'*':''}</span><span class="dt num">${dur(i.days,i.wdays)}</span><span class="dt">${i.due?`<span class="${dueCls(i.due)}">${i.due}</span>`:'—'}</span></div>`).join('');
+    const list = `<div class="airow head"><span>Action item</span><span>Responsible</span><span>Requestor</span><span>Last activity</span><span class="num">Days pending</span><span>Due date</span></div>`
+      + a.items.map(i=>`<div class="airow"><span>${aiLink(i)}${cmtPop(i)}</span><span class="pend">${respOf(i)}</span><span>${i.req||'—'}</span><span class="dt">${i.eff||'—'}${i.noComment?'*':''}</span><span class="dt num">${dur(i.days,i.wdays)}</span><span class="dt">${i.due?`<span class="${dueCls(i.due)}">${i.due}</span>`:'—'}</span></div>`).join('');
     const note = a.items.some(i=>i.noComment)
       ? '<div class="ainote">* no comments yet — dates and days pending count from when the AI was created.</div>' : '';
     aibox = `<div class="aibox">
@@ -889,7 +889,7 @@ function connReport(c){
   if(c.ai){
     L.push(`Action items (${c.ai.count} open):`);
     c.ai.items.forEach(i=>{
-      L.push(`  - ${i.title||('AI #'+i.id)} — responsible ${respOf(i)} · pending for ${dur(i.days,i.wdays)}`
+      L.push(`  - ${i.title||('AI #'+i.id)} — responsible ${respOf(i)} · requested by ${i.req||'—'} · pending for ${dur(i.days,i.wdays)}`
         +` · ${i.noComment?`created ${i.eff||'—'}, no comments yet`:`last activity ${i.eff||'—'}`}${i.due?` · due ${i.due}`:''}`);
       if(i.id!=null) L.push(`    ${aiUrl(c.id,i.id)}`);
     });
