@@ -333,20 +333,30 @@ const OE_SHORT = ["Pending","Resource Asgmt","Req. Gathering",
 const OE_COLORS = ["#9aa5b1","#5e81ac","#4472a4","#1f7f8f","#12917f","#b26a00","#0f6f5c"];
 
 // ---------- date + text helpers ----------
+// format a Date's LOCAL calendar day — uploaded sheets parse dates to local
+// midnight, so UTC-based toISOString() would land on the previous day for
+// timezones ahead of UTC
+const localDay = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 function toISO(v){
   if(v==null || v==='') return null;
-  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
-  if(typeof v==='number'){ // excel serial
+  if(v instanceof Date && !isNaN(v)) return localDay(v);
+  if(typeof v==='number'){ // excel serial (UTC-based math, no tz involved)
     const d = new Date(Math.round((v-25569)*86400*1000));
     return isNaN(d)?null:d.toISOString().slice(0,10);
   }
   const s = String(v).trim();
-  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if(m) return m[1]+'-'+m[2]+'-'+m[3];
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})($|[T ])/);
+  if(m){
+    // full timestamps (e.g. an upload cached as JSON serializes its Dates to
+    // UTC) are converted back to the local calendar day; date-only strings
+    // are taken as-is
+    if(m[4]){ const d = new Date(s); if(!isNaN(d)) return localDay(d); }
+    return m[1]+'-'+m[2]+'-'+m[3];
+  }
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if(m) return m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
   const d = new Date(s);
-  return isNaN(d)?null:d.toISOString().slice(0,10);
+  return isNaN(d)?null:localDay(d);
 }
 const STOP = /\b(inc|llc|llp|ltd|co|corp|corporation|company|the|of)\b/g;
 function norm(s){
@@ -1066,7 +1076,7 @@ $('#files').onchange = async e => {
     if(newCr) RAW.cr = newCr;
     if(newAi) RAW.ai = newAi;
     if(newOe) RAW.oe = newOe;
-    RAW.generated = new Date().toISOString().slice(0,10);
+    RAW.generated = localDay(new Date());
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
     let saveWarn = '';
     try{ await dbSet(DB_KEY, JSON.stringify(RAW)); }
