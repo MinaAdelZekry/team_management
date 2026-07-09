@@ -874,7 +874,8 @@ function renderProd(months, mine){
   const team = DATA.production.filter(p=>p.month===curMonth).length;
   $('#mon').innerHTML = months.map(m=>`<option${m===curMonth?' selected':''}>${m}</option>`).join('');
   $('#mon').onchange = e => { curMonth = e.target.value; render(); };
-  $('#prodcount').innerHTML = `<b>${rows.length}</b> for ${curEmp} &middot; team total ${team}`;
+  $('#prodcount').innerHTML = `<b>${rows.length}</b> for ${curEmp} &middot; team total ${team}`
+    + (team ? ` &middot; <b>${Math.round(rows.length/team*1000)/10}%</b> of team total` : '');
   $('#prodtable').innerHTML = rows.length ? `<table>
     <tr><th>CR</th><th>Customer - Carrier</th><th>Ready for Production date</th><th>Production date</th><th>Status</th><th></th></tr>
     ${rows.map(p=>`<tr><td class="dt"><a class="lnk" href="${crUrl(p.id)}" target="_blank">#${p.id}</a></td><td>${p.customer} - ${p.carrier}</td>
