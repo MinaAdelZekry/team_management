@@ -333,9 +333,9 @@ const OE_SHORT = ["Pending","Resource Asgmt","Req. Gathering",
 const OE_COLORS = ["#9aa5b1","#5e81ac","#4472a4","#1f7f8f","#12917f","#b26a00","#0f6f5c"];
 
 // ---------- date + text helpers ----------
-// format a Date's LOCAL calendar day — uploaded sheets parse dates to local
-// midnight, so UTC-based toISOString() would land on the previous day for
-// timezones ahead of UTC
+// format a Date's LOCAL calendar day. Uploads keep dates as raw Excel serials,
+// so this is a fallback for data cached by older versions, where UTC-based
+// toISOString() would land on the previous day for timezones ahead of UTC
 const localDay = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 function toISO(v){
   if(v==null || v==='') return null;
@@ -1064,7 +1064,9 @@ $('#files').onchange = async e => {
     msg.className=''; msg.textContent='Reading…';
     let newCr=null, newAi=null, newOe=null, names=[];
     for(const f of files){
-      const wb = XLSX.read(await f.arrayBuffer(), {cellDates:true});
+      // no cellDates: date cells stay raw Excel serial numbers, which encode
+      // the sheet's literal calendar day — no timezone interpretation at all
+      const wb = XLSX.read(await f.arrayBuffer());
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
       const cols = new Set(Object.keys(rows[0]||{}));
       if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; names.push(f.name+' (AI)'); }
