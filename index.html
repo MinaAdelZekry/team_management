@@ -555,13 +555,14 @@ function aiTable(items){
     ? `<a class="lnk" href="${aiUrl(crIdOf(a),a.id)}" target="_blank">${a.title||('AI #'+a.id)}</a>`
     : (a.title||(a.id!=null?'AI #'+a.id:'—'));
   return `<table>
-    <tr><th>Client — Carrier</th><th>CR</th><th>CR status</th><th>Action item</th><th>Responsible</th><th>Last activity</th><th>Days pending</th></tr>
+    <tr><th>Client — Carrier</th><th>CR</th><th>CR status</th><th>Action item</th><th>Responsible</th><th>Requestor</th><th>Last activity</th><th>Days pending</th></tr>
     ${items.map(a=>`<tr>
       <td>${a.client} — ${a.carrier}</td>
       <td class="dt">${crIdOf(a)!=null?`<a class="lnk" href="${crUrl(crIdOf(a))}" target="_blank">#${crIdOf(a)}</a>`:'—'}</td>
       <td>${a.cr?a.cr.status:'—'}</td>
       <td>${aiCell(a)}${cmtPop(a)}</td>
       <td>${respOf(a)}</td>
+      <td>${a.req||'—'}</td>
       <td class="dt">${a.eff||'—'}${a.noComment?'*':''}</td>
       <td class="dt">${dur(a.days,a.wdays)}</td></tr>`).join('')}
   </table>
@@ -807,7 +808,7 @@ function buildReport(){
     others.forEach(a=>{
       const cid = a.cr ? a.cr.id : (a.crid!=null ? a.crid : null);
       L.push(`  - ${a.title||('AI #'+a.id)} — ${a.client} / ${a.carrier}${cid!=null?` (CR #${cid}${a.cr?`, ${a.cr.status}`:''})`:''}`);
-      L.push(`    responsible ${respOf(a)} · pending for ${dur(a.days,a.wdays)} · ${a.noComment?`created ${a.eff||'—'}, no comments yet`:`last activity ${a.eff||'—'}`}${a.due?` · due ${a.due}`:''}`);
+      L.push(`    responsible ${respOf(a)} · requested by ${a.req||'—'} · pending for ${dur(a.days,a.wdays)} · ${a.noComment?`created ${a.eff||'—'}, no comments yet`:`last activity ${a.eff||'—'}`}${a.due?` · due ${a.due}`:''}`);
       if(a.id!=null && cid!=null) L.push(`    ${aiUrl(cid,a.id)}`);
     });
   }
