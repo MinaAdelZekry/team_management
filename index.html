@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Analyst Connectivity Dashboard</title>
+<title>Analyst Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
@@ -33,6 +33,17 @@
   .toolbar button{font:inherit;font-weight:650;border:1px solid var(--line);background:var(--card);
          border-radius:8px;padding:9px 14px;cursor:pointer}
   .toolbar button:hover{background:var(--accent-soft)}
+  .search{position:relative}
+  .search input{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;
+         background:var(--card);min-width:260px}
+  .search .results{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:100%;
+         width:max-content;max-width:420px;background:var(--card);border:1px solid var(--line);
+         border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:40;max-height:320px;overflow:auto}
+  .search .results .hit{padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line)}
+  .search .results .hit:last-child{border-bottom:none}
+  .search .results .hit:hover{background:var(--accent-soft)}
+  .search .results .hit small{color:var(--ink-soft);display:block;font-family:var(--mono);font-size:11px}
+  .search .results .none{padding:8px 12px;color:var(--ink-soft);font-style:italic;font-size:13px}
   #repmodal{display:none;position:fixed;inset:0;background:rgba(20,30,40,.45);z-index:50;padding:20px}
   #repmodal.open{display:flex;align-items:center;justify-content:center}
   .repbox{background:var(--card);border-radius:12px;max-width:840px;width:100%;max-height:85vh;
@@ -120,6 +131,19 @@
   .prodhead select.mon{font-family:var(--mono);font-weight:700;font-size:15px;min-width:0;padding:6px 10px}
   .prodcount{font-size:13px;color:var(--ink-soft)}
   .prodcount b{color:var(--ink);font-size:16px}
+  .yearsel{font:inherit;font-weight:700;font-family:var(--mono);font-size:13px;min-width:0;
+        padding:2px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);
+        color:var(--ink);letter-spacing:0}
+  .stagebars{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;
+        display:grid;grid-template-columns:max-content 1fr max-content max-content;gap:10px 14px;align-items:center}
+  .stagebars .srow{display:contents}
+  .stagebars .sname{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;white-space:nowrap}
+  .stagebars .sname i{width:10px;height:10px;border-radius:3px;display:inline-block;flex:none}
+  .stagebars .strack{background:var(--paper);border-radius:6px;height:14px;overflow:hidden}
+  .stagebars .sbar{height:100%;border-radius:6px;min-width:2px}
+  .stagebars .sval{font-family:var(--mono);font-size:12.5px;font-weight:700;text-align:right}
+  .stagebars .scnt{font-family:var(--mono);font-size:11px;color:var(--ink-soft);text-align:right}
+  @media(max-width:600px){ .stagebars{grid-template-columns:max-content 1fr max-content} .stagebars .scnt{display:none} }
   .bars{display:flex;align-items:flex-end;gap:6px;height:110px;background:var(--card);
         border:1px solid var(--line);border-radius:10px;padding:12px 12px 26px;margin-bottom:12px}
   .barcol{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;
@@ -148,7 +172,7 @@
 <header><div class="wrap">
   <div>
     <h1>Analyst Dashboard</h1>
-    <div class="sub">Data as of <span id="gen"></span></div>
+    <div class="sub">Data as of <span id="gen"></span> &middot; <a class="lnk" href="isolved.html">Switch to iSolved view &rarr;</a></div>
   </div>
   <div class="upload">
     <label for="files">&#8682; Update data (upload CR / AI / OE reports)</label>
@@ -162,25 +186,36 @@
     <input id="emp" list="emplist" placeholder="Type to search names&hellip;" autocomplete="off">
     <datalist id="emplist"></datalist>
     <button id="repbtn">&#128196; Generate report</button>
+    <span class="search">
+      <input id="connsearch" placeholder="&#128269; Search all connections&hellip;" autocomplete="off">
+      <div id="connresults" class="results"></div>
+    </span>
   </div>
   <div class="kpis" id="kpis"></div>
 
-  <h2>In-progress connections</h2>
+  <h2 id="connstoggle" style="cursor:pointer;user-select:none"><span id="connscaret">&#9662;</span> In-progress connections <span id="connscount"></span></h2>
   <div id="conns"></div>
 
   <h2 id="othertoggle" style="cursor:pointer;user-select:none"><span id="othercaret">&#9656;</span> Other open action items <span id="othercount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; on this analyst's other CRs, requested by them, or where they're the responsible party &middot; click to expand</span></h2>
   <div id="otherais" style="display:none"></div>
 
-  <h2>In-progress OE requests</h2>
+  <h2 id="oestoggle" style="cursor:pointer;user-select:none"><span id="oescaret">&#9662;</span> In-progress OE requests <span id="oescount"></span></h2>
   <div id="oes"></div>
 
   <h2>Monthly production <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; counted on Ready-for-Production date (Production date if RFP is empty)</span></h2>
   <div class="prodhead">
     <button id="prev">&#8592;</button><select class="mon" id="mon"></select><button id="next">&#8594;</button>
     <div class="prodcount" id="prodcount"></div>
+    <span class="search">
+      <input id="prodsearch" placeholder="&#128269; Search all production&hellip;" autocomplete="off">
+      <div id="prodresults" class="results"></div>
+    </span>
   </div>
   <div class="bars" id="bars"></div>
   <div id="prodtable"></div>
+
+  <h2>Average stage duration <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; stages completed in <select id="avgyear" class="yearsel"></select> &middot; any CR status &middot; in calendar weeks</span></h2>
+  <div id="stageavg"></div>
 </div>
 <div id="cmtpop"></div>
 <div id="repmodal"><div class="repbox">
@@ -213,6 +248,17 @@ const OE_STAGES = ["Pending Start","Resource Assignment","Requirement Gathering"
 const OE_SHORT = ["Pending","Resource Asgmt","Req. Gathering",
   "Waiting Data","Sending File","Carrier Conf.","Completed"];
 const OE_COLORS = ["#9aa5b1","#5e81ac","#4472a4","#1f7f8f","#12917f","#b26a00","#0f6f5c"];
+
+// ---------- page role ----------
+// which CR-sheet role this page groups by: the analyst page uses the
+// Technical Contact column, the iSolved page the iSolved Contact column;
+// each card also shows the other role's contact
+const ROLE = 'tc';
+const crEmp   = r => txt(ROLE==='tc' ? r['Technical Contact'] : r['iSolved Contact']);
+const crOther = r => txt(ROLE==='tc' ? r['iSolved Contact'] : r['Technical Contact']);
+const oeEmp   = r => txt(ROLE==='tc' ? r['TechnicalContact'] : r['IsolvedContact']);
+const oeOther = r => txt(ROLE==='tc' ? r['IsolvedContact'] : r['TechnicalContact']);
+const OTHER_ROLE_LABEL = ROLE==='tc' ? 'isolved contact' : 'technical contact';
 
 // ---------- date + text helpers ----------
 // format a Date's LOCAL calendar day. Uploads keep dates as raw Excel serials,
@@ -370,7 +416,7 @@ function process(crRows, aiRows, oeRows, generated){
   const dateCols = ['Created Date','Assignment Date',...Object.keys(MS)];
   const conns = [];
   for(const r of crRows){
-    if(!ACTIVE.has(txt(r['Status'])) || !txt(r['Technical Contact'])) continue;
+    if(!ACTIVE.has(txt(r['Status'])) || !crEmp(r)) continue;
     const dates = dateCols.map(c=>toISO(r[c])).filter(Boolean);
     const lastCr = dates.length ? dates.sort().at(-1) : null;
     const byId = aiByCr[r['Request ID']] || [];
@@ -383,7 +429,7 @@ function process(crRows, aiRows, oeRows, generated){
     const items = byId.concat(named).sort((a,b)=>String(a.eff).localeCompare(String(b.eff)));
     let ai = null, lastAi = null;
     if(items.length){
-      const cardCr = {id: r['Request ID'], tc: txt(r['Technical Contact'])||null,
+      const cardCr = {id: r['Request ID'], tc: crEmp(r)||null,
         customer: txt(r['Customer']), carrier: txt(r['Carrier']), status: txt(r['Status'])};
       items.forEach(i=>{ i.used=true; i.cardTcs.push(cardCr.tc); if(!i.cr) i.cr = cardCr; });
       const latest = items.at(-1);
@@ -404,10 +450,10 @@ function process(crRows, aiRows, oeRows, generated){
     const ti = STAGE_COLS.indexOf('Testing');
     stageDates[ti] = toISO(r['First Test File']) || stageDates[ti];
     conns.push({
-      id: r['Request ID'], tc: txt(r['Technical Contact']),
+      id: r['Request ID'], tc: crEmp(r),
       carrier: txt(r['Carrier']), customer: txt(r['Customer']),
       instance: txt(r['Instance']), type: txt(r['Request Type']), mig: migOf(r),
-      stage: txt(r['Stage']), status: txt(r['Status']), isolved: txt(r['iSolved Contact']),
+      stage: txt(r['Stage']), status: txt(r['Status']), isolved: crOther(r),
       assigned: toISO(r['Assignment Date']),
       stageDates,
       noTestFile: !toISO(r['First Test File']),
@@ -425,24 +471,35 @@ function process(crRows, aiRows, oeRows, generated){
     if(!use) continue;
     production.push({
       _i: production.length,
-      id: r['Request ID'], tc: txt(r['Technical Contact'])||null,
+      id: r['Request ID'], tc: crEmp(r)||null,
       carrier: txt(r['Carrier']), customer: txt(r['Customer']),
       status: txt(r['Status']), date: use, rfp, prod: pr,
       month: use.slice(0,7)
     });
   }
 
+  // stage history for every CR with an assigned contact (any status), used by
+  // the average-stage-duration section
+  const stageRows = [];
+  for(const r of crRows){
+    if(!crEmp(r)) continue;
+    const sd = STAGE_COLS.map(col=>col?toISO(r[col]):null);
+    const ti = STAGE_COLS.indexOf('Testing');
+    sd[ti] = toISO(r['First Test File']) || sd[ti];
+    stageRows.push({tc: crEmp(r), sd});
+  }
+
   // OE requests: active ones assigned to a technical contact
   const oes = [];
   for(const r of (oeRows||[])){
-    if(!ACTIVE.has(txt(r['Status'])) || !txt(r['TechnicalContact'])) continue;
+    if(!ACTIVE.has(txt(r['Status'])) || !oeEmp(r)) continue;
     oes.push({
       id: r['OERequestID'], crId: r['ConnectivityRequestID'],
-      tc: txt(r['TechnicalContact']), client: txt(r['ClientName']), carrier: txt(r['CarrierName']),
+      tc: oeEmp(r), client: txt(r['ClientName']), carrier: txt(r['CarrierName']),
       type: txt(r['RequestType']), status: txt(r['Status']), stage: txt(r['Stage']),
       pysd: toISO(r['PlanYearStartDate']), expected: toISO(r['ClientDataExpectedDate']),
       dataReady: toISO(r['DataReadyDate']), submitted: toISO(r['OEFileSubmissionDate']),
-      isolved: txt(r['IsolvedContact']), dataChanges: txt(r['ISolvedDataChanges']),
+      isolved: oeOther(r), dataChanges: txt(r['ISolvedDataChanges']),
       groupStructure: txt(r['UpdatedGroupStructure']),
       canResume: txt(r['CanResumeProductionPYSD']), resumed: txt(r['ResumedProduction']),
       draft: Number(r['IsDraftOERequest'])===1,
@@ -454,7 +511,7 @@ function process(crRows, aiRows, oeRows, generated){
   // first, then by name (live / cancelled / unassigned CRs)
   const crById = {}, crIx = {}, crIxB = {}, crInfos = [];
   for(const r of crRows){
-    const info = {id: r['Request ID'], tc: txt(r['Technical Contact'])||null,
+    const info = {id: r['Request ID'], tc: crEmp(r)||null,
       customer: txt(r['Customer']), carrier: txt(r['Carrier']), status: txt(r['Status']),
       nc: norm(r['Customer']), nk: normCarrier(r['Carrier'])};
     crInfos.push(info);
@@ -478,7 +535,7 @@ function process(crRows, aiRows, oeRows, generated){
   const employees = [...new Set([...conns.map(c=>c.tc), ...production.map(p=>p.tc).filter(Boolean),
     ...oes.map(o=>o.tc), ...aiItems.map(i=>i.cr&&i.cr.tc).filter(Boolean),
     ...aiItems.map(i=>i.req).filter(rq=>rq && tcSet.has(rq))])].sort();
-  return {generated, connections: conns, production, oes, aiAll: aiItems, employees};
+  return {generated, connections: conns, production, oes, aiAll: aiItems, employees, stageRows};
 }
 
 // ---------- state + rendering ----------
@@ -525,7 +582,7 @@ async function restoreSaved(){
   }
 }
 let DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
-let curEmp = null, curMonth = null;
+let curEmp = null, curMonth = null, curAvgYear = null;
 
 const stageIdx = s => { let t = String(s).toLowerCase();
   if(t==='obtain customer dataset') t = 'dataset validation'; // stage removed from the rail
@@ -570,12 +627,53 @@ function render(){
 
   $('#conns').innerHTML = conns.length ? conns.map(connCard).join('')
       : '<div class="empty">No in-progress connections for this employee.</div>';
+  $('#connscount').textContent = `(${conns.length})`;
   $('#othercount').textContent = `(${others.length})`;
   $('#otherais').innerHTML = others.length ? aiTable(others)
       : '<div class="empty">No other open action items for this employee.</div>';
   $('#oes').innerHTML = oes.length ? oes.map(oeCard).join('')
       : '<div class="empty">No in-progress OE requests for this employee. Upload the OE report above to load OE data.</div>';
+  $('#oescount').textContent = `(${oes.length})`;
   renderProd(months, mine);
+  renderStageAvgs();
+}
+
+// average time spent in each stage (start of the stage to the start of the
+// next recorded one, Pending Start excluded) over the selected employee's
+// CRs, counting intervals that completed in the chosen year; shown as a bar
+// per stage in calendar weeks
+function renderStageAvgs(){
+  const mine = (DATA.stageRows||[]).filter(s=>s.tc===curEmp);
+  const ints = [];   // every completed interval: stage index, end year, days
+  for(const s of mine) for(let i=1;i<STAGES.length;i++){
+    const start = s.sd[i];
+    if(!start) continue;
+    let end = null;
+    for(let j=i+1;j<s.sd.length;j++) if(s.sd[j]){ end = s.sd[j]; break; }
+    if(!end) continue;
+    const d = daysBetween(start, new Date(end+'T00:00:00Z'));
+    if(d>=0) ints.push({i, y: end.slice(0,4), d});
+  }
+  const dataYear = String(DATA.generated).slice(0,4);
+  const years = [...new Set(ints.map(x=>x.y))].sort().reverse();
+  if(!years.includes(curAvgYear)) curAvgYear = years.includes(dataYear) ? dataYear : (years[0]||dataYear);
+  const sel = $('#avgyear');
+  sel.innerHTML = (years.length?years:[curAvgYear]).map(y=>`<option${y===curAvgYear?' selected':''}>${y}</option>`).join('');
+  sel.onchange = e => { curAvgYear = e.target.value; renderStageAvgs(); };
+  const rows = [];
+  for(let i=1;i<STAGES.length;i++){
+    const ds = ints.filter(x=>x.i===i && x.y===curAvgYear).map(x=>x.d);
+    if(ds.length) rows.push([i, ds.reduce((a,b)=>a+b,0)/ds.length, ds.length]);
+  }
+  const max = Math.max(...rows.map(r=>r[1]), 1);
+  $('#stageavg').innerHTML = rows.length ? `<div class="stagebars">
+    ${rows.map(([i,avg,n])=>`<div class="srow">
+      <span class="sname"><i style="background:${STAGE_COLORS[i]}"></i>${STAGES[i]}</span>
+      <div class="strack"><div class="sbar" style="width:${Math.max(3, avg/max*100)}%;background:${STAGE_COLORS[i]}"></div></div>
+      <span class="sval">${(avg/7).toFixed(1)} wk</span>
+      <span class="scnt">${n} CR${n>1?'s':''}</span>
+    </div>`).join('')}
+  </div>` : `<div class="empty">No stages completed in ${curAvgYear} for this employee.</div>`;
 }
 
 // open AIs shown in the "other" section for an employee: items not already on
@@ -662,7 +760,7 @@ function connCard(c){
   } else {
     aibox = `<div class="aibox"><span class="none">No open action items linked to this client + carrier.</span></div>`;
   }
-  return `<div class="conn">
+  return `<div class="conn" id="conn-${c.id}">
     <div class="top">
       <div class="name"><a class="lnk" href="${crUrl(c.id)}" target="_blank">${c.carrier} <small>— ${c.customer}</small></a> <small class="dt">CR #${c.id}</small></div>
       <div class="chips">
@@ -681,7 +779,7 @@ function connCard(c){
       <div>Assigned <b class="dt">${fmt(c.assigned)}</b></div>
       <div>Last CR update <b class="dt">${fmt(c.lastCr)}</b></div>
       <div>Last activity (CR or AI) <b class="dt">${fmt(c.lastAny)}</b></div>
-      <div>isolved contact <b>${c.isolved||'—'}</b></div>
+      <div>${OTHER_ROLE_LABEL} <b>${c.isolved||'—'}</b></div>
       ${ms}
     </div>
     ${aibox}
@@ -729,7 +827,7 @@ function oeCard(o){
       <div>Updated group structure <b>${o.groupStructure||'—'}</b></div>
       <div>Can resume prod before PYSD <b>${o.canResume||'—'}</b></div>
       <div>Resumed production <b>${o.resumed||'—'}</b></div>
-      <div>isolved contact <b>${o.isolved||'—'}</b></div>
+      <div>${OTHER_ROLE_LABEL} <b>${o.isolved||'—'}</b></div>
       <div>Created <b class="dt">${fmt(o.created)}</b>${o.createdBy?` by ${o.createdBy}`:''}</div>
     </div>
   </div>`;
@@ -760,7 +858,7 @@ function renderProd(months, mine){
     + (team ? ` &middot; <b>${Math.round(rows.length/team*1000)/10}%</b> of team total` : '');
   $('#prodtable').innerHTML = rows.length ? `<table>
     <tr><th>CR</th><th>Customer - Carrier</th><th>Ready for Production date</th><th>Production date</th><th>Status</th><th></th></tr>
-    ${rows.map(p=>`<tr><td class="dt"><a class="lnk" href="${crUrl(p.id)}" target="_blank">#${p.id}</a></td><td>${p.customer} - ${p.carrier}</td>
+    ${rows.map(p=>`<tr id="prod-${p._i}"><td class="dt"><a class="lnk" href="${crUrl(p.id)}" target="_blank">#${p.id}</a></td><td>${p.customer} - ${p.carrier}</td>
       <td class="dt">${p.rfp||'—'}</td>
       <td class="dt">${p.prod||'—'}</td><td>${p.status}</td>
       <td><button class="copybtn" data-copy="prod:${p._i}" title="Copy this production record">Copy</button></td></tr>`).join('')}
@@ -809,7 +907,7 @@ function oeReport(o){
   L.push(`Data ready: ${o.dataReady||'—'} · OE file submitted: ${o.submitted||'—'}`);
   L.push(`iSolved data changes: ${o.dataChanges||'—'} · Updated group structure: ${o.groupStructure||'—'}`);
   L.push(`Can resume production before PYSD: ${o.canResume||'—'} · Resumed production: ${o.resumed||'—'}`);
-  L.push(`isolved contact: ${o.isolved||'—'} · Technical contact: ${o.tc||'—'}`);
+  L.push(`${OTHER_ROLE_LABEL}: ${o.isolved||'—'} · assigned contact: ${o.tc||'—'}`);
   L.push(`Created: ${o.created||'—'}${o.createdBy?` by ${o.createdBy}`:''}`);
   return L;
 }
@@ -892,13 +990,80 @@ $('#emp').onchange = e => {
   e.target.value = curEmp;
 };
 $('#emp').onfocus = e => e.target.select();
-// collapse / expand the "Other open action items" section
-let otherOpen = false;
-$('#othertoggle').onclick = () => {
-  otherOpen = !otherOpen;
-  $('#otherais').style.display = otherOpen ? '' : 'none';
-  $('#othercaret').innerHTML = otherOpen ? '&#9662;' : '&#9656;';
-};
+// dropdown search helper: shows hits while typing, hides on blur, and calls
+// pick() with the chosen hit's data-* attributes
+function wireSearch(input, box, hitsFor, hitHtml, pick){
+  const show = () => {
+    const q = $(input).value.trim().toLowerCase();
+    if(!q){ $(box).style.display='none'; return; }
+    const hits = hitsFor(q);
+    $(box).innerHTML = hits.length ? hits.map(hitHtml).join('')
+      : '<div class="none">No matches.</div>';
+    $(box).style.display='block';
+  };
+  $(input).oninput = show;
+  $(input).onfocus = show;
+  $(input).onblur = () => setTimeout(()=>{ $(box).style.display='none'; }, 150);
+  $(box).onmousedown = e => {
+    const h = e.target.closest('.hit');
+    if(!h) return;
+    $(box).style.display='none'; $(input).value='';
+    pick(h.dataset);
+  };
+}
+// scroll to an element and flash-highlight it
+function jumpTo(el){
+  if(!el) return;
+  el.scrollIntoView({behavior:'smooth', block:'center'});
+  const oldBg = el.style.background;
+  el.style.boxShadow = '0 0 0 3px var(--accent)';
+  el.style.background = 'var(--accent-soft)';
+  setTimeout(()=>{ el.style.boxShadow=''; el.style.background = oldBg; }, 1600);
+}
+// global connection search: matches every active connection (all employees)
+// by client, carrier or CR #; picking one switches to its assigned contact
+// (the analyst here, the iSolved contact on the iSolved page) and jumps to
+// the card
+wireSearch('#connsearch', '#connresults',
+  q => DATA.connections.filter(c =>
+      c.customer.toLowerCase().includes(q) || c.carrier.toLowerCase().includes(q)
+      || String(c.id)===q.replace(/^#/,'')).slice(0,15),
+  c => `<div class="hit" data-id="${c.id}">${esc(c.carrier)} — ${esc(c.customer)}
+      <small>CR #${c.id} &middot; ${esc(c.status)} &middot; ${esc(c.tc)}</small></div>`,
+  d => {
+    const c = DATA.connections.find(x=>String(x.id)===d.id);
+    if(!c) return;
+    if(c.tc!==curEmp){ curEmp = c.tc; $('#emp').value = curEmp; render(); }
+    if($('#conns').style.display==='none') $('#connstoggle').click();
+    jumpTo(document.getElementById('conn-'+c.id));
+  });
+// production search: matches every CR with a production / RFP date (all
+// employees, all months); picking one switches to that person and month and
+// jumps to the row
+wireSearch('#prodsearch', '#prodresults',
+  q => DATA.production.filter(p => p.tc &&
+      (p.customer.toLowerCase().includes(q) || p.carrier.toLowerCase().includes(q)
+      || String(p.id)===q.replace(/^#/,''))).slice(0,15),
+  p => `<div class="hit" data-i="${p._i}">${esc(p.carrier)} — ${esc(p.customer)}
+      <small>CR #${p.id} &middot; ${p.date} &middot; ${esc(p.tc)}</small></div>`,
+  d => {
+    const p = DATA.production[+d.i];
+    if(!p) return;
+    if(p.tc!==curEmp || p.month!==curMonth){
+      curEmp = p.tc; $('#emp').value = curEmp; curMonth = p.month; render();
+    }
+    jumpTo(document.getElementById('prod-'+p._i));
+  });
+// collapse / expand sections: "other action items" starts collapsed,
+// connections & OEs start expanded
+function toggler(h2, body, caret, open){
+  $(body).style.display = open ? '' : 'none';
+  $(caret).innerHTML = open ? '&#9662;' : '&#9656;';
+  $(h2).onclick = () => toggler(h2, body, caret, !open);
+}
+toggler('#othertoggle', '#otherais', '#othercaret', false);
+toggler('#connstoggle', '#conns', '#connscaret', true);
+toggler('#oestoggle', '#oes', '#oescaret', true);
 // per-card / per-row copy buttons
 document.addEventListener('click', e => {
   const b = e.target.closest('.copybtn');

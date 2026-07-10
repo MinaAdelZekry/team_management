@@ -1,144 +1,9 @@
-"""
-Analyst Connectivity Dashboard generator.
-
-Usage:
-    python build_dashboard.py <ConnectivityRequests.xlsx> <ActionItems.xlsx> [OERequests.xlsx] [output.html]
-
-Produces two self-contained interactive HTML dashboards from the same data:
-the analyst page (grouped by Technical Contact, written to the output path)
-and an iSolved page (grouped by iSolved Contact, written to isolved.html next
-to it), linked to each other in the header. The dashboards themselves can be
-refreshed later by uploading new CR / AI Excel exports directly in the page
-(no need to rerun this script).
-
-Rules implemented:
-  - Monthly production month = Ready For Production date, falling back to
-    Production date when RFP is empty.
-  - AI pending days = days since last comment, falling back to the AI
-    creation (start) date when there is no comment.
-"""
-import os, sys, json, re
-import pandas as pd
-from datetime import datetime
-
-CR_KEEP = ["Request ID", "Carrier", "Customer", "Instance", "Request Type",
-           "Migration", "IsMigration", "Is Migration", "Migration Request",
-           "Migration Type", "Migration Phase",
-           "Stage", "Status", "Technical Contact", "iSolved Contact",
-           "Created Date", "Assignment Date", "Requirements Gathering",
-           "Resource Assignment", "Dataset Validation", "Mapping", "Testing",
-           "Ready For Production", "Production", "First Test File",
-           "First Production File"]
-AI_KEEP = ["ActionItemID", "ActionItemTitle", "ClientName", "CarrierName",
-           "Requestor", "CurrentlyPendingOn", "StartDate", "DueDate",
-           "Due Date", "DueOn", "LastCommentOwner", "LastCommentDate",
-           "LastComment", "ConnectivityRequestID"]
-OE_KEEP = ["OERequestID", "ConnectivityRequestID", "ClientName", "CarrierName",
-           "RequestType", "PlanYearStartDate", "ClientDataExpectedDate",
-           "ISolvedDataChanges", "UpdatedGroupStructure", "Status", "Stage",
-           "TechnicalContact", "DataReadyDate", "OEFileSubmissionDate",
-           "IsolvedContact", "CanResumeProductionPYSD", "ResumedProduction",
-           "IsDraftOERequest", "Created", "CreatedBy"]
-ACTIVE = ["In Progress", "Blocked", "On Hold", "Not Started"]
-
-# mirrors norm()/baseKey() in the dashboard JS so the embed mask keeps every
-# CR that an action item could attach to
-_STOP = re.compile(r"\b(inc|llc|llp|ltd|co|corp|corporation|company|the|of)\b")
-
-
-def _norm(s):
-    s = re.sub(r"[^a-z0-9 ]", " ", str("" if s is None else s).lower())
-    return re.sub(r"\s+", " ", _STOP.sub("", s)).strip()
-
-
-def _base_key(client, carrier):
-    return (_norm(client), _norm(re.sub(r"\(.*?\)", " ", str("" if carrier is None else carrier))))
-
-
-def detect(paths):
-    cr = ai = oe = None
-    for p in paths:
-        cols = set(pd.read_excel(p, nrows=0).columns)
-        if "ActionItemID" in cols or "CurrentlyPendingOn" in cols:
-            ai = p
-        elif "OERequestID" in cols:
-            oe = p
-        elif "Request ID" in cols:
-            cr = p
-    if not cr or not ai:
-        sys.exit("Could not identify the CR and AI reports from the given files.")
-    return cr, ai, oe
-
-
-def records(df, keep):
-    df = df[[c for c in keep if c in df.columns]].copy()
-    for c in df.columns:
-        if pd.api.types.is_datetime64_any_dtype(df[c]):
-            df[c] = df[c].dt.strftime("%Y-%m-%d")
-    recs = json.loads(df.to_json(orient="records", date_format="iso"))
-    return [{k: v for k, v in r.items() if v is not None} for r in recs]
-
-
-def main():
-    args = sys.argv[1:]
-    out = "Analyst_Dashboard.html"
-    if args and args[-1].lower().endswith((".html", ".htm")):
-        out = args.pop()
-    if len(args) < 2:
-        sys.exit(__doc__)
-    cr_path, ai_path, oe_path = detect(args)
-
-    cr = pd.read_excel(cr_path)
-    ai = pd.read_excel(ai_path)
-    for c in ["StartDate", "LastCommentDate", "DueDate", "Due Date", "DueOn"]:
-        if c in ai.columns:
-            ai[c] = pd.to_datetime(ai[c], errors="coerce")
-
-    # embed only rows the dashboard can use (active, has a prod/RFP date,
-    # or is referenced by an open action item)
-    ai_keys = {_base_key(r.get("ClientName"), r.get("CarrierName"))
-               for _, r in ai.iterrows()}
-    cr_keys = cr.apply(lambda r: _base_key(r.get("Customer"), r.get("Carrier")), axis=1)
-    mask = (cr["Status"].isin(ACTIVE) & cr["Technical Contact"].notna()) \
-        | cr["Ready For Production"].notna() | cr["Production"].notna() \
-        | cr_keys.isin(ai_keys)
-    if "ConnectivityRequestID" in ai.columns:
-        mask |= cr["Request ID"].isin(ai["ConnectivityRequestID"].dropna())
-    oe_recs = []
-    if oe_path:
-        oe = pd.read_excel(oe_path)
-        oe_recs = records(oe[oe["Status"].isin(ACTIVE)], OE_KEEP)
-    raw = {"generated": datetime.now().strftime("%Y-%m-%d"),
-           "cr": records(cr[mask], CR_KEEP), "ai": records(ai, AI_KEEP),
-           "oe": oe_recs}
-
-    raw_json = json.dumps(raw, ensure_ascii=False)
-
-    def page(role, title, who, other_href, other_label):
-        return (TEMPLATE.replace("__RAW__", raw_json)
-                .replace("__ROLE__", role)
-                .replace("__TITLE__", title)
-                .replace("__WHO__", who)
-                .replace("__OTHER_HREF__", other_href)
-                .replace("__OTHER_LABEL__", other_label))
-
-    iso_out = os.path.join(os.path.dirname(out), "isolved.html")
-    with open(out, "w", encoding="utf-8") as f:
-        f.write(page("tc", "Analyst Dashboard", "analyst",
-                     os.path.basename(iso_out), "Switch to iSolved view"))
-    with open(iso_out, "w", encoding="utf-8") as f:
-        f.write(page("isolved", "iSolved Dashboard", "iSolved contact",
-                     os.path.basename(out), "Switch to Analyst view"))
-    print(f"Wrote {out} + {iso_out}: {int(mask.sum())} CR rows, {len(ai)} AI rows, "
-          f"{len(oe_recs)} OE rows embedded")
-
-
-TEMPLATE = r"""<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>__TITLE__</title>
+<title>iSolved Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
@@ -306,8 +171,8 @@ TEMPLATE = r"""<!DOCTYPE html>
 <body>
 <header><div class="wrap">
   <div>
-    <h1>__TITLE__</h1>
-    <div class="sub">Data as of <span id="gen"></span> &middot; <a class="lnk" href="__OTHER_HREF__">__OTHER_LABEL__ &rarr;</a></div>
+    <h1>iSolved Dashboard</h1>
+    <div class="sub">Data as of <span id="gen"></span> &middot; <a class="lnk" href="index.html">Switch to Analyst view &rarr;</a></div>
   </div>
   <div class="upload">
     <label for="files">&#8682; Update data (upload CR / AI / OE reports)</label>
@@ -331,7 +196,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   <h2 id="connstoggle" style="cursor:pointer;user-select:none"><span id="connscaret">&#9662;</span> In-progress connections <span id="connscount"></span></h2>
   <div id="conns"></div>
 
-  <h2 id="othertoggle" style="cursor:pointer;user-select:none"><span id="othercaret">&#9656;</span> Other open action items <span id="othercount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; on this __WHO__'s other CRs, requested by them, or where they're the responsible party &middot; click to expand</span></h2>
+  <h2 id="othertoggle" style="cursor:pointer;user-select:none"><span id="othercaret">&#9656;</span> Other open action items <span id="othercount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; on this iSolved contact's other CRs, requested by them, or where they're the responsible party &middot; click to expand</span></h2>
   <div id="otherais" style="display:none"></div>
 
   <h2 id="oestoggle" style="cursor:pointer;user-select:none"><span id="oescaret">&#9662;</span> In-progress OE requests <span id="oescount"></span></h2>
@@ -359,7 +224,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   <textarea id="reptext" readonly></textarea>
 </div></div>
 <script>
-const RAW = __RAW__;
+const RAW = {"generated": "2000-01-01", "cr": [], "ai": [], "oe": []};
 const STAGES = ["Pending Start","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready for Production","Production"];
 const STAGE_SHORT = ["Pending","Req. Gathering","Resource Asgmt",
@@ -388,7 +253,7 @@ const OE_COLORS = ["#9aa5b1","#5e81ac","#4472a4","#1f7f8f","#12917f","#b26a00","
 // which CR-sheet role this page groups by: the analyst page uses the
 // Technical Contact column, the iSolved page the iSolved Contact column;
 // each card also shows the other role's contact
-const ROLE = '__ROLE__';
+const ROLE = 'isolved';
 const crEmp   = r => txt(ROLE==='tc' ? r['Technical Contact'] : r['iSolved Contact']);
 const crOther = r => txt(ROLE==='tc' ? r['iSolved Contact'] : r['Technical Contact']);
 const oeEmp   = r => txt(ROLE==='tc' ? r['TechnicalContact'] : r['IsolvedContact']);
@@ -1042,7 +907,7 @@ function oeReport(o){
   L.push(`Data ready: ${o.dataReady||'—'} · OE file submitted: ${o.submitted||'—'}`);
   L.push(`iSolved data changes: ${o.dataChanges||'—'} · Updated group structure: ${o.groupStructure||'—'}`);
   L.push(`Can resume production before PYSD: ${o.canResume||'—'} · Resumed production: ${o.resumed||'—'}`);
-  L.push(`isolved contact: ${o.isolved||'—'} · Technical contact: ${o.tc||'—'}`);
+  L.push(`${OTHER_ROLE_LABEL}: ${o.isolved||'—'} · assigned contact: ${o.tc||'—'}`);
   L.push(`Created: ${o.created||'—'}${o.createdBy?` by ${o.createdBy}`:''}`);
   return L;
 }
@@ -1076,7 +941,7 @@ function buildReport(){
   if(others.length){
     L.push('');
     L.push(`${'='.repeat(70)}`);
-    L.push(`OTHER OPEN ACTION ITEMS — on this __WHO__'s other CRs, requested by them, or where they're the responsible party (${others.length}):`);
+    L.push(`OTHER OPEN ACTION ITEMS — on this iSolved contact's other CRs, requested by them, or where they're the responsible party (${others.length}):`);
     others.forEach(a=>{
       const cid = a.cr ? a.cr.id : (a.crid!=null ? a.crid : null);
       L.push(`  - ${a.title||('AI #'+a.id)} — ${a.client} / ${a.carrier}${cid!=null?` (CR #${cid}${a.cr?`, ${a.cr.status}`:''})`:''}`);
@@ -1284,7 +1149,3 @@ restoreSaved().catch(()=>{}).then(()=>{
 </script>
 </body>
 </html>
-"""
-
-if __name__ == "__main__":
-    main()
