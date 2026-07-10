@@ -143,6 +143,10 @@
   .stagebars .sbar{height:100%;border-radius:6px;min-width:2px}
   .stagebars .sval{font-family:var(--mono);font-size:12.5px;font-weight:700;text-align:right}
   .stagebars .scnt{font-family:var(--mono);font-size:11px;color:var(--ink-soft);text-align:right}
+  .stagebars .scnt .outbtn{color:var(--amber);cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}
+  .stagebars .scnt .outbtn:hover{color:var(--red)}
+  .stagebars .souts{grid-column:1/-1;background:var(--paper);border:1px dashed var(--line);border-radius:8px;
+        padding:8px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:4px;margin:-2px 0 4px}
   @media(max-width:600px){ .stagebars{grid-template-columns:max-content 1fr max-content} .stagebars .scnt{display:none} }
   .bars{display:flex;align-items:flex-end;gap:6px;height:110px;background:var(--card);
         border:1px solid var(--line);border-radius:10px;padding:12px 12px 26px;margin-bottom:12px}
@@ -214,7 +218,7 @@
   <div class="bars" id="bars"></div>
   <div id="prodtable"></div>
 
-  <h2>Average stage duration <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; stages completed in <select id="avgyear" class="yearsel"></select> &middot; any CR status &middot; in calendar weeks</span></h2>
+  <h2>Average stage duration <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; stages completed in <select id="avgyear" class="yearsel"></select> &middot; outlier filter <select id="avgconf" class="yearsel"><option value="90">90%</option><option value="95">95%</option><option value="99">99%</option><option value="100">off</option></select> &middot; total production: <b id="avgprodcount" style="color:var(--ink)"></b></span></h2>
   <div id="stageavg"></div>
 </div>
 <div id="cmtpop"></div>
@@ -259,6 +263,10 @@ const crOther = r => txt(ROLE==='tc' ? r['iSolved Contact'] : r['Technical Conta
 const oeEmp   = r => txt(ROLE==='tc' ? r['TechnicalContact'] : r['IsolvedContact']);
 const oeOther = r => txt(ROLE==='tc' ? r['IsolvedContact'] : r['TechnicalContact']);
 const OTHER_ROLE_LABEL = ROLE==='tc' ? 'isolved contact' : 'technical contact';
+// weekend for working-day counts: Friday & Saturday for analysts,
+// Saturday & Sunday for iSolved contacts (UTC day numbers, 0 = Sunday)
+const WEEKEND = new Set(ROLE==='tc' ? [5,6] : [6,0]);
+const WEEKEND_LABEL = ROLE==='tc' ? 'Friday & Saturday' : 'Saturday & Sunday';
 
 // ---------- date + text helpers ----------
 // format a Date's LOCAL calendar day. Uploads keep dates as raw Excel serials,
@@ -294,7 +302,7 @@ function norm(s){
 }
 const txt = v => (v==null ? '' : String(v).trim());
 const daysBetween = (iso, today) => Math.floor((today - new Date(iso+'T00:00:00Z'))/86400000);
-// working days in the same span — Friday & Saturday are the weekend
+// working days in the same span — the page role decides the weekend days
 function workDaysBetween(iso, today){
   const start = new Date(iso+'T00:00:00Z');
   const days = Math.floor((today - start)/86400000);
@@ -303,7 +311,7 @@ function workDaysBetween(iso, today){
   let wd = weeks*5, dow = start.getUTCDay();
   for(let k = days - weeks*7; k > 0; k--){
     dow = (dow + 1) % 7;
-    if(dow !== 5 && dow !== 6) wd++;   // 5 = Friday, 6 = Saturday
+    if(!WEEKEND.has(dow)) wd++;
   }
   return wd;
 }
@@ -486,7 +494,8 @@ function process(crRows, aiRows, oeRows, generated){
     const sd = STAGE_COLS.map(col=>col?toISO(r[col]):null);
     const ti = STAGE_COLS.indexOf('Testing');
     sd[ti] = toISO(r['First Test File']) || sd[ti];
-    stageRows.push({tc: crEmp(r), sd});
+    stageRows.push({tc: crEmp(r), sd, id: r['Request ID'],
+      customer: txt(r['Customer']), carrier: txt(r['Carrier'])});
   }
 
   // OE requests: active ones assigned to a technical contact
@@ -582,7 +591,7 @@ async function restoreSaved(){
   }
 }
 let DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
-let curEmp = null, curMonth = null, curAvgYear = null;
+let curEmp = null, curMonth = null, curAvgYear = null, curAvgConf = 99;
 
 const stageIdx = s => { let t = String(s).toLowerCase();
   if(t==='obtain customer dataset') t = 'dataset validation'; // stage removed from the rail
@@ -639,41 +648,80 @@ function render(){
 }
 
 // average time spent in each stage (start of the stage to the start of the
-// next recorded one, Pending Start excluded) over the selected employee's
-// CRs, counting intervals that completed in the chosen year; shown as a bar
-// per stage in calendar weeks
+// next recorded one) over the CRs the selected employee took to production in
+// the chosen year; the early admin stages are skipped and durations outside
+// the chosen confidence band are dropped as outliers.
+// Shown as a bar per stage in calendar weeks
+const AVG_FIRST_STAGE = 3;   // skip Pending Start, Req. Gathering, Resource Asgmt
+const Z = {90:1.645, 95:1.96, 99:2.576};
+// split stage intervals into kept / outliers using the chosen confidence
+// band (mean ± z·σ); 'off' keeps everything, samples under 3 are never trimmed
+function splitOutliers(list){
+  const z = Z[curAvgConf];
+  if(!z || list.length<3) return {kept:list, cut:[]};
+  const m = list.reduce((a,x)=>a+x.d,0)/list.length;
+  const sd = Math.sqrt(list.reduce((a,x)=>a+(x.d-m)*(x.d-m),0)/list.length);
+  if(!sd) return {kept:list, cut:[]};
+  const kept = [], cut = [];
+  for(const x of list) (Math.abs(x.d-m)<=z*sd ? kept : cut).push(x);
+  return {kept, cut};
+}
 function renderStageAvgs(){
-  const mine = (DATA.stageRows||[]).filter(s=>s.tc===curEmp);
-  const ints = [];   // every completed interval: stage index, end year, days
-  for(const s of mine) for(let i=1;i<STAGES.length;i++){
-    const start = s.sd[i];
-    if(!start) continue;
-    let end = null;
-    for(let j=i+1;j<s.sd.length;j++) if(s.sd[j]){ end = s.sd[j]; break; }
-    if(!end) continue;
-    const d = daysBetween(start, new Date(end+'T00:00:00Z'));
-    if(d>=0) ints.push({i, y: end.slice(0,4), d});
-  }
+  // only CRs that reached Ready For Production / Production are counted, so
+  // connections still moving through the pipeline don't skew the averages
+  const RFP_I = STAGE_COLS.indexOf('Ready For Production');
+  const mine = (DATA.stageRows||[]).filter(s=>s.tc===curEmp && (s.sd[RFP_I] || s.sd[RFP_I+1]));
+  // a CR belongs to the year of its production date (RFP falling back to
+  // Production — the monthly production rule); all of its completed stage
+  // intervals count toward that year, whenever each stage finished
+  const prodYearOf = s => (s.sd[RFP_I] || s.sd[RFP_I+1]).slice(0,4);
   const dataYear = String(DATA.generated).slice(0,4);
-  const years = [...new Set(ints.map(x=>x.y))].sort().reverse();
+  const years = [...new Set(mine.map(prodYearOf))].sort().reverse();
   if(!years.includes(curAvgYear)) curAvgYear = years.includes(dataYear) ? dataYear : (years[0]||dataYear);
   const sel = $('#avgyear');
   sel.innerHTML = (years.length?years:[curAvgYear]).map(y=>`<option${y===curAvgYear?' selected':''}>${y}</option>`).join('');
   sel.onchange = e => { curAvgYear = e.target.value; renderStageAvgs(); };
+  const conf = $('#avgconf');
+  conf.value = String(curAvgConf);
+  conf.onchange = e => { curAvgConf = +e.target.value; renderStageAvgs(); };
+  // total production for the chosen year, counted like the monthly production
+  // section (Ready-for-Production date, falling back to Production date)
+  const prodN = DATA.production.filter(p=>p.tc===curEmp && p.month.slice(0,4)===curAvgYear).length;
+  $('#avgprodcount').textContent = `${prodN} CR${prodN===1?'':'s'} in ${curAvgYear}`;
+  const ints = [];   // completed intervals on this year's produced CRs
+  for(const s of mine){
+    if(prodYearOf(s)!==curAvgYear) continue;
+    for(let i=AVG_FIRST_STAGE;i<STAGES.length;i++){
+      const start = s.sd[i];
+      if(!start) continue;
+      let end = null;
+      for(let j=i+1;j<s.sd.length;j++) if(s.sd[j]){ end = s.sd[j]; break; }
+      if(!end) continue;
+      const d = daysBetween(start, new Date(end+'T00:00:00Z'));
+      if(d>=0) ints.push({i, d, id: s.id, customer: s.customer, carrier: s.carrier, start, end});
+    }
+  }
   const rows = [];
-  for(let i=1;i<STAGES.length;i++){
-    const ds = ints.filter(x=>x.i===i && x.y===curAvgYear).map(x=>x.d);
-    if(ds.length) rows.push([i, ds.reduce((a,b)=>a+b,0)/ds.length, ds.length]);
+  for(let i=AVG_FIRST_STAGE;i<STAGES.length;i++){
+    const all = ints.filter(x=>x.i===i);
+    const {kept, cut} = splitOutliers(all);
+    if(kept.length) rows.push([i, kept.reduce((a,x)=>a+x.d,0)/kept.length, kept, cut]);
   }
   const max = Math.max(...rows.map(r=>r[1]), 1);
   $('#stageavg').innerHTML = rows.length ? `<div class="stagebars">
-    ${rows.map(([i,avg,n])=>`<div class="srow">
+    ${rows.map(([i,avg,kept,cut])=>`<div class="srow">
       <span class="sname"><i style="background:${STAGE_COLORS[i]}"></i>${STAGES[i]}</span>
       <div class="strack"><div class="sbar" style="width:${Math.max(3, avg/max*100)}%;background:${STAGE_COLORS[i]}"></div></div>
       <span class="sval">${(avg/7).toFixed(1)} wk</span>
-      <span class="scnt">${n} CR${n>1?'s':''}</span>
-    </div>`).join('')}
-  </div>` : `<div class="empty">No stages completed in ${curAvgYear} for this employee.</div>`;
+      <span class="scnt">${kept.length} CR${kept.length>1?'s':''}${cut.length?` &middot; <a class="outbtn" data-i="${i}" title="show / hide the removed CRs">${cut.length} outlier${cut.length>1?'s':''} removed</a>`:''}</span>
+    </div>${cut.length?`<div class="souts" id="souts-${i}" style="display:none">
+      ${cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} — ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
+    </div>`:''}`).join('')}
+  </div>` : `<div class="empty">No production CRs with measurable stages in ${curAvgYear} for this employee.</div>`;
+  document.querySelectorAll('#stageavg .outbtn').forEach(b=>{
+    b.onclick = () => { const el = document.getElementById('souts-'+b.dataset.i);
+      if(el) el.style.display = el.style.display==='none' ? '' : 'none'; };
+  });
 }
 
 // open AIs shown in the "other" section for an employee: items not already on
@@ -922,7 +970,7 @@ function buildReport(){
   const openAIs = conns.reduce((s,c)=>s+(c.ai?c.ai.count:0),0);
   const L = [];
   L.push(`CONNECTIVITY REPORT — ${curEmp}`);
-  L.push(`Data as of ${DATA.generated} · wd = working days (Friday & Saturday excluded)`);
+  L.push(`Data as of ${DATA.generated} · wd = working days (${WEEKEND_LABEL} excluded)`);
   L.push(`${conns.length} in-progress connections · ${conns.filter(c=>c.status==='On Hold').length} on hold · ${openAIs} open action items · ${others.length} open AIs on other CRs · ${sendingOes.length} OEs sending file`);
   conns.forEach((c,n)=>{
     L.push('');
