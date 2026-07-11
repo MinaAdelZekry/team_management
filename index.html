@@ -1130,9 +1130,10 @@ function jumpTo(el){
 // (the analyst here, the iSolved contact on the iSolved page) and jumps to
 // the card
 wireSearch('#connsearch', '#connresults',
-  q => DATA.connections.filter(c =>
+  q => { const qid = q.replace(/^#/,'');   // digit queries also match partial CR ids
+    return DATA.connections.filter(c =>
       c.customer.toLowerCase().includes(q) || c.carrier.toLowerCase().includes(q)
-      || String(c.id)===q.replace(/^#/,'')).slice(0,15),
+      || (/^\d+$/.test(qid) && String(c.id).includes(qid))).slice(0,15); },
   c => `<div class="hit" data-id="${c.id}">${esc(c.carrier)} — ${esc(c.customer)}
       <small>CR #${c.id} &middot; ${esc(c.status)} &middot; ${esc(c.tc)}</small></div>`,
   d => {
@@ -1146,9 +1147,10 @@ wireSearch('#connsearch', '#connresults',
 // employees, all months); picking one switches to that person and month and
 // jumps to the row
 wireSearch('#prodsearch', '#prodresults',
-  q => DATA.production.filter(p => p.tc &&
+  q => { const qid = q.replace(/^#/,'');   // digit queries also match partial CR ids
+    return DATA.production.filter(p => p.tc &&
       (p.customer.toLowerCase().includes(q) || p.carrier.toLowerCase().includes(q)
-      || String(p.id)===q.replace(/^#/,''))).slice(0,15),
+      || (/^\d+$/.test(qid) && String(p.id).includes(qid)))).slice(0,15); },
   p => `<div class="hit" data-i="${p._i}">${esc(p.carrier)} — ${esc(p.customer)}
       <small>CR #${p.id} &middot; ${p.date} &middot; ${esc(p.tc)}</small></div>`,
   d => {

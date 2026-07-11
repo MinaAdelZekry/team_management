@@ -213,7 +213,8 @@ Mapping → Testing → Ready for Production → Production.
 ## 9. Searches
 
 - **Connection search** (toolbar): matches every *active* connection on the page's roster by
-  client, carrier, or CR # (with/without `#`), max 15 hits. Picking one switches to the assigned
+  client, carrier, or CR # (with/without `#`; a digits-only query also matches **partial** CR
+  ids, e.g. `564` finds `#5641`), max 15 hits. Picking one switches to the assigned
   person, expands the section if collapsed, scrolls to the card and flash-highlights it.
 - **Production search** (production section): same matching over every CR with a production/RFP
   date, all people and months. Picking one switches person **and** month, then jumps to the row.
