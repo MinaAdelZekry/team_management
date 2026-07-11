@@ -748,7 +748,7 @@ const stageIdx = s => { let t = String(s).toLowerCase();
   if(t==='obtain customer dataset') t = 'dataset validation'; // stage removed from the rail
   const i = STAGES.findIndex(x=>x.toLowerCase()===t); return i<0?0:i; };
 const statusCls = s => 'status-'+s.toLowerCase().replace(/\s+/g,'');
-// one rule for all day-based warnings: <4 days ok, 4-9 amber, >=10 red
+// one rule for all warnings, counted in WORKING days: <4 ok, 4-9 amber, >=10 red
 const idleCls = n => n==null?'idle-ok':(n>=10?'idle-bad':(n>=4?'idle-warn':'idle-ok'));
 
 function initSelectors(){
@@ -981,8 +981,8 @@ function connCard(c){
   if(c.ai){
     const a = c.ai, L = a.latest;
     const aiLink = i => i.id!=null ? `<a class="lnk" href="${aiUrl(c.id,i.id)}" target="_blank">${i.title||('AI #'+i.id)}</a>` : (i.title||'');
-    // due-date intervals: <4 days overdue ok, 4-9 amber, >=10 red
-    const dueCls = d => { const o = daysBetween(d, today);
+    // due-date intervals in working days overdue: <4 ok, 4-9 amber, >=10 red
+    const dueCls = d => { const o = workDaysBetween(d, today);
       return o>=10?'due-over':(o>=4?'due-warn':'due-ok'); };
     const dueTag = i => i.due ? ` &middot; due <span class="dt ${dueCls(i.due)}">${i.due}</span>` : '';
     const list = `<div class="airow head"><span>Action item</span><span>Responsible</span><span>Requestor</span><span>Last activity</span><span class="num">Days pending</span><span>Due date</span></div>`
@@ -1005,7 +1005,7 @@ function connCard(c){
         ${isMig(c.mig)?`<span class="chip" style="background:var(--blue-bg);color:var(--blue)">${/^yes$/i.test(c.mig)?'Migration':c.mig}</span>`
           :(c.mig!=null?'<span class="chip" style="background:var(--accent-soft);color:var(--accent)">New Orders</span>':'')}
         <span class="chip ${statusCls(c.status)}">${c.status}</span>
-        <span class="chip ${idleCls(c.idleDays)}">${c.idleDays==null?'no activity':dur(c.idleDays,c.idleWdays)+' since activity'}</span>
+        <span class="chip ${idleCls(c.idleWdays)}">${c.idleDays==null?'no activity':dur(c.idleDays,c.idleWdays)+' since activity'}</span>
         <button class="copybtn" data-copy="conn:${c.id}" title="Copy this connection's report">Copy</button>
       </div>
     </div>

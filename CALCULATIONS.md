@@ -137,9 +137,10 @@ Pending days/working-days count from that date to the data date.
 
 ### 4.5 Warning intervals (one rule for all day-based colors)
 
-CR idle chips and AI due-date chips share the same intervals and palette:
-`< 4` days ok (green), `4–9` warn (amber), `≥ 10` bad/over (red) —
-counting days idle for CRs and days overdue for AI due dates.
+CR idle chips and AI due-date chips share the same intervals and palette,
+counted in **working days** (per the page's weekend rule, §4.2):
+`< 4` working days ok (green), `4–9` warn (amber), `≥ 10` bad/over (red) —
+working days idle for CRs, working days overdue for AI due dates.
 
 ---
 
