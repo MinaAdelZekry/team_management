@@ -259,7 +259,6 @@ TEMPLATE = r"""<!DOCTYPE html>
   .aibox .pend{font-weight:650;color:var(--blue)}
   .aibox .due-ok{color:var(--accent);font-weight:650}
   .aibox .due-warn{color:var(--amber);font-weight:700}
-  .aibox .due-late{color:#c2410c;font-weight:700}
   .aibox .due-over{color:var(--red);font-weight:700}
   .aibox .none{color:var(--ink-soft);font-style:italic}
   details.ailist{margin-top:6px;font-size:12.5px;overflow-x:auto}
@@ -749,7 +748,8 @@ const stageIdx = s => { let t = String(s).toLowerCase();
   if(t==='obtain customer dataset') t = 'dataset validation'; // stage removed from the rail
   const i = STAGES.findIndex(x=>x.toLowerCase()===t); return i<0?0:i; };
 const statusCls = s => 'status-'+s.toLowerCase().replace(/\s+/g,'');
-const idleCls = n => n==null?'idle-ok':(n>=14?'idle-bad':(n>=7?'idle-warn':'idle-ok'));
+// one rule for all day-based warnings: <4 days ok, 4-9 amber, >=10 red
+const idleCls = n => n==null?'idle-ok':(n>=10?'idle-bad':(n>=4?'idle-warn':'idle-ok'));
 
 function initSelectors(){
   $('#gen').textContent = DATA.generated;
@@ -981,8 +981,9 @@ function connCard(c){
   if(c.ai){
     const a = c.ai, L = a.latest;
     const aiLink = i => i.id!=null ? `<a class="lnk" href="${aiUrl(c.id,i.id)}" target="_blank">${i.title||('AI #'+i.id)}</a>` : (i.title||'');
+    // due-date intervals: <4 days overdue ok, 4-9 amber, >=10 red
     const dueCls = d => { const o = daysBetween(d, today);
-      return o<=0?'due-ok':(o<=5?'due-warn':(o<=10?'due-late':'due-over')); };
+      return o>=10?'due-over':(o>=4?'due-warn':'due-ok'); };
     const dueTag = i => i.due ? ` &middot; due <span class="dt ${dueCls(i.due)}">${i.due}</span>` : '';
     const list = `<div class="airow head"><span>Action item</span><span>Responsible</span><span>Requestor</span><span>Last activity</span><span class="num">Days pending</span><span>Due date</span></div>`
       + a.items.map(i=>`<div class="airow"><span>${aiLink(i)}${cmtPop(i)}</span><span class="pend">${respOf(i)}</span><span>${i.req||'—'}</span><span class="dt">${i.eff||'—'}${i.noComment?'*':''}</span><span class="dt num">${dur(i.days,i.wdays)}</span><span class="dt">${i.due?`<span class="${dueCls(i.due)}">${i.due}</span>`:'—'}</span></div>`).join('');

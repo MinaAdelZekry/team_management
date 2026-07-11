@@ -134,11 +134,12 @@ Pending days/working-days count from that date to the data date.
 ### 4.4 Idle time on connections
 
 `last activity = max(any CR milestone/stage date, latest AI effective date)`.
-Chip coloring: **≥ 14 days idle = red, ≥ 7 = amber, else green**.
 
-### 4.5 Due-date coloring (AI due chips)
+### 4.5 Warning intervals (one rule for all day-based colors)
 
-Days overdue = today − due date: `≤ 0` ok (green), `1–5` warn, `6–10` late, `> 10` over (red).
+CR idle chips and AI due-date chips share the same intervals and palette:
+`< 4` days ok (green), `4–9` warn (amber), `≥ 10` bad/over (red) —
+counting days idle for CRs and days overdue for AI due dates.
 
 ---
 
