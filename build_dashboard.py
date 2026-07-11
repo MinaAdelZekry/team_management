@@ -782,6 +782,16 @@ function render(){
   renderStageAvgs();
 }
 
+// rank an employee by production count among everyone with production CRs
+// matching pred (ties share the same rank)
+function prodRank(emp, pred){
+  const counts = {};
+  DATA.production.forEach(p=>{ if(p.tc && pred(p)) counts[p.tc]=(counts[p.tc]||0)+1; });
+  const c = counts[emp]||0;
+  const all = Object.values(counts);
+  return {c, n: all.length, r: 1 + all.filter(v=>v>c).length};
+}
+
 // average time spent in each stage (start of the stage to the start of the
 // next recorded one) over the CRs the selected employee took to production in
 // the chosen year; the early admin stages are skipped and durations outside
@@ -819,10 +829,11 @@ function renderStageAvgs(){
   const conf = $('#avgconf');
   conf.value = String(curAvgConf);
   conf.onchange = e => { curAvgConf = +e.target.value; renderStageAvgs(); };
-  // total production for the chosen year, counted like the monthly production
-  // section (Ready-for-Production date, falling back to Production date)
-  const prodN = DATA.production.filter(p=>p.tc===curEmp && p.month.slice(0,4)===curAvgYear).length;
-  $('#avgprodcount').textContent = `${prodN} CR${prodN===1?'':'s'} in ${curAvgYear}`;
+  // total production for the chosen year (Ready-for-Production date, falling
+  // back to Production date) with the rank among everyone who produced then
+  const yrank = prodRank(curEmp, p=>p.month.slice(0,4)===curAvgYear);
+  $('#avgprodcount').textContent = `${yrank.c} CR${yrank.c===1?'':'s'} in ${curAvgYear}`
+    + (yrank.c ? ` · rank #${yrank.r} of ${yrank.n}` : '');
   const ints = [];   // completed intervals on this year's produced CRs
   for(const s of mine){
     if(prodYearOf(s)!==curAvgYear) continue;
@@ -1037,8 +1048,10 @@ function renderProd(months, mine){
   const team = DATA.production.filter(p=>p.month===curMonth).length;
   $('#mon').innerHTML = months.map(m=>`<option${m===curMonth?' selected':''}>${m}</option>`).join('');
   $('#mon').onchange = e => { curMonth = e.target.value; render(); };
+  const mrank = prodRank(curEmp, p=>p.month===curMonth);
   $('#prodcount').innerHTML = `<b>${rows.length}</b> for ${curEmp} &middot; team total ${team}`
-    + (team ? ` &middot; <b>${Math.round(rows.length/team*1000)/10}%</b> of team total` : '');
+    + (team ? ` &middot; <b>${Math.round(rows.length/team*1000)/10}%</b> of team total` : '')
+    + (rows.length ? ` &middot; rank <b>#${mrank.r}</b> of ${mrank.n}` : '');
   $('#prodtable').innerHTML = rows.length ? `<table>
     <tr><th>CR</th><th>Customer - Carrier</th><th>Ready for Production date</th><th>Production date</th><th>Status</th><th></th></tr>
     ${rows.map(p=>`<tr id="prod-${p._i}"><td class="dt"><a class="lnk" href="${crUrl(p.id)}" target="_blank">#${p.id}</a></td><td>${p.customer} - ${p.carrier}</td>
