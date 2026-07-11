@@ -169,6 +169,7 @@
   .empty{color:var(--ink-soft);font-style:italic;padding:14px}
   a.lnk{color:inherit;text-decoration:underline dotted;text-underline-offset:2px}
   a.lnk:hover{color:var(--blue);text-decoration:underline solid}
+  .rankbtn{cursor:pointer}
   @media(max-width:600px){ .meta{grid-template-columns:1fr 1fr} th:nth-child(5),td:nth-child(5){display:none} }
 </style>
 </head>
@@ -657,6 +658,32 @@ function prodRank(emp, pred){
   return {c, n: all.length, r: 1 + all.filter(v=>v>c).length};
 }
 
+// full production ranking (month or year scope), shown in the report modal
+// so it can be copied or downloaded like the other reports
+function showRankList(scope){
+  const isYear = scope==='year';
+  const label = isYear ? curAvgYear : curMonth;
+  const pred = isYear ? (p=>p.month.slice(0,4)===curAvgYear) : (p=>p.month===curMonth);
+  const counts = {};
+  DATA.production.forEach(p=>{ if(p.tc && pred(p)) counts[p.tc]=(counts[p.tc]||0)+1; });
+  const list = Object.entries(counts).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
+  const L = [`PRODUCTION RANKING — ${label}`, ''];
+  let r = 0, prev = null;
+  list.forEach(([name,c],idx)=>{
+    if(c!==prev){ r = idx+1; prev = c; }
+    L.push(`#${String(r).padStart(2,' ')}  ${name} — ${c} CR${c>1?'s':''}${name===curEmp?'   ←':''}`);
+  });
+  L.push('', `${list.length} ${ROLE==='tc'?'analysts':'iSolved contacts'} with production in ${label}`);
+  $('#reptitle').textContent = `Production ranking — ${label}`;
+  $('#reptext').value = L.join('\n');
+  $('#repmodal').classList.add('open');
+}
+// click a rank link to open the full ranking
+document.addEventListener('click', e => {
+  const b = e.target.closest('.rankbtn');
+  if(b) showRankList(b.dataset.scope);
+});
+
 // average time spent in each stage (start of the stage to the start of the
 // next recorded one) over the CRs the selected employee took to production in
 // the chosen year; the early admin stages are skipped and durations outside
@@ -697,8 +724,8 @@ function renderStageAvgs(){
   // total production for the chosen year (Ready-for-Production date, falling
   // back to Production date) with the rank among everyone who produced then
   const yrank = prodRank(curEmp, p=>p.month.slice(0,4)===curAvgYear);
-  $('#avgprodcount').textContent = `${yrank.c} CR${yrank.c===1?'':'s'} in ${curAvgYear}`
-    + (yrank.c ? ` · rank #${yrank.r} of ${yrank.n}` : '');
+  $('#avgprodcount').innerHTML = `${yrank.c} CR${yrank.c===1?'':'s'} in ${curAvgYear}`
+    + (yrank.c ? ` &middot; <a class="lnk rankbtn" data-scope="year" title="show the full ranking">rank #${yrank.r} of ${yrank.n}</a>` : '');
   const ints = [];   // completed intervals on this year's produced CRs
   for(const s of mine){
     if(prodYearOf(s)!==curAvgYear) continue;
@@ -916,7 +943,7 @@ function renderProd(months, mine){
   const mrank = prodRank(curEmp, p=>p.month===curMonth);
   $('#prodcount').innerHTML = `<b>${rows.length}</b> for ${curEmp} &middot; team total ${team}`
     + (team ? ` &middot; <b>${Math.round(rows.length/team*1000)/10}%</b> of team total` : '')
-    + (rows.length ? ` &middot; rank <b>#${mrank.r}</b> of ${mrank.n}` : '');
+    + (rows.length ? ` &middot; <a class="lnk rankbtn" data-scope="month" title="show the full ranking">rank <b>#${mrank.r}</b> of ${mrank.n}</a>` : '');
   $('#prodtable').innerHTML = rows.length ? `<table>
     <tr><th>CR</th><th>Customer - Carrier</th><th>Ready for Production date</th><th>Production date</th><th>Status</th><th></th></tr>
     ${rows.map(p=>`<tr id="prod-${p._i}"><td class="dt"><a class="lnk" href="${crUrl(p.id)}" target="_blank">#${p.id}</a></td><td>${p.customer} - ${p.carrier}</td>
