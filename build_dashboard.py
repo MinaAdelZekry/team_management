@@ -146,12 +146,24 @@ TEMPLATE = r"""<!DOCTYPE html>
     --line:#e2e6e1; --accent:#0f6f5c; --accent-soft:#e2f0ec;
     --amber:#b26a00; --amber-bg:#fdf2df; --red:#b3261e; --red-bg:#fbe9e7;
     --blue:#2b5d8a; --blue-bg:#e7eff6;
+    --head:#1b2733; --pop:#1b2733; --th-bg:#fafbf9; --bar:#c9d6d1;
+    --ring:rgba(27,39,51,.3); --chip-mute:#ececec; --chip-mute-ink:#555;
     --mono:'SF Mono',Consolas,'Liberation Mono',monospace;
+    color-scheme:light;
+  }
+  :root[data-theme="dark"]{
+    --ink:#e8edf2; --ink-soft:#9aa8b5; --paper:#12181f; --card:#1b232c;
+    --line:#2c3742; --accent:#3fb59a; --accent-soft:#173229;
+    --amber:#e0a24a; --amber-bg:#33270f; --red:#e57373; --red-bg:#3a1d1a;
+    --blue:#7aa7cf; --blue-bg:#1c2a38;
+    --head:#0d1319; --pop:#0d1319; --th-bg:#202a34; --bar:#3a4a45;
+    --ring:rgba(232,237,242,.35); --chip-mute:#2c3742; --chip-mute-ink:#b6c2cd;
+    color-scheme:dark;
   }
   *{box-sizing:border-box;margin:0}
   body{font:15px/1.45 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
        background:var(--paper);color:var(--ink);padding-bottom:60px}
-  header{background:var(--ink);color:#fff;padding:16px 16px 12px}
+  header{background:var(--head);color:#fff;padding:16px 16px 12px}
   header .wrap{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
   header h1{font-size:19px;font-weight:650;letter-spacing:.2px}
   header .sub{color:#9fb0bf;font-size:12.5px;margin-top:2px;font-family:var(--mono)}
@@ -159,6 +171,9 @@ TEMPLATE = r"""<!DOCTYPE html>
   .upload label{background:#2e4155;color:#dfe8f0;font-size:12.5px;font-weight:650;
         padding:8px 14px;border-radius:8px;cursor:pointer;border:1px solid #45596e}
   .upload label:hover{background:#3a5069}
+  #themebtn{font:inherit;font-size:15px;line-height:1;background:#2e4155;color:#dfe8f0;
+        border:1px solid #45596e;border-radius:8px;padding:8px 10px;cursor:pointer}
+  #themebtn:hover{background:#3a5069}
   #upmsg{font-size:12px;font-family:var(--mono);max-width:340px}
   #upmsg.ok{color:#8fd6b8} #upmsg.err{color:#ffb3ad}
   .wrap{max-width:1100px;margin:0 auto;padding:0 12px}
@@ -208,24 +223,24 @@ TEMPLATE = r"""<!DOCTYPE html>
   .copybtn:hover{background:var(--accent-soft);color:var(--accent)}
   .chip.status-inprogress{background:var(--accent-soft);color:var(--accent)}
   .chip.status-blocked{background:var(--red-bg);color:var(--red)}
-  .chip.status-onhold,.chip.status-notstarted{background:#eee;color:#555}
+  .chip.status-onhold,.chip.status-notstarted{background:var(--chip-mute);color:var(--chip-mute-ink)}
   .chip.idle-ok{background:var(--accent-soft);color:var(--accent)}
   .chip.idle-warn{background:var(--amber-bg);color:var(--amber)}
   .chip.idle-bad{background:var(--red-bg);color:var(--red)}
   .rail{display:flex;gap:4px;margin:12px 0 6px}
   .rail .seg{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0;position:relative;cursor:pointer}
   .rail .seg i{display:block;height:7px;border-radius:4px}
-  .rail .seg.cur i{box-shadow:0 0 0 2px rgba(27,39,51,.3)}
+  .rail .seg.cur i{box-shadow:0 0 0 2px var(--ring)}
   .rail .seg span{font-size:9.5px;line-height:1.15;color:var(--ink-soft);text-align:center;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .rail .seg.todo span{color:#b6bfc7}
   .rail .seg.cur span{color:var(--ink);font-weight:700}
   .rail .seg .tip{display:none;position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
-    background:var(--ink);color:#eef3f7;font-size:12px;line-height:1.45;padding:8px 11px;border-radius:8px;
+    background:var(--pop);color:#eef3f7;font-size:12px;line-height:1.45;padding:8px 11px;border-radius:8px;
     width:max-content;max-width:250px;white-space:normal;text-align:left;z-index:5;
     box-shadow:0 4px 14px rgba(0,0,0,.28);user-select:text;cursor:text}
   .rail .seg .tip::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
-    border:6px solid transparent;border-top-color:var(--ink)}
+    border:6px solid transparent;border-top-color:var(--pop)}
   .rail .seg .tip small{display:block;color:#9fb0bf;margin-top:5px;font-size:10.5px;user-select:none}
   .rail .seg:hover .tip{display:block}
   .rail .seg:first-child .tip{left:0;transform:none}
@@ -256,7 +271,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .aitable .num{text-align:right}
   .ainote{font-size:11px;color:var(--ink-soft);font-style:italic;margin-top:4px}
   .cmt{cursor:help;font-size:12px;margin-left:2px}
-  #cmtpop{display:none;position:fixed;background:var(--ink);color:#eef3f7;font-size:12px;line-height:1.5;
+  #cmtpop{display:none;position:fixed;background:var(--pop);color:#eef3f7;font-size:12px;line-height:1.5;
     padding:8px 11px;border-radius:8px;max-width:320px;white-space:pre-wrap;z-index:99;
     box-shadow:0 4px 14px rgba(0,0,0,.28);pointer-events:none}
   #cmtpop small{display:block;color:#9fb0bf;margin-top:5px;font-size:10.5px;white-space:normal}
@@ -287,14 +302,14 @@ TEMPLATE = r"""<!DOCTYPE html>
         border:1px solid var(--line);border-radius:10px;padding:12px 12px 26px;margin-bottom:12px}
   .barcol{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;
           height:100%;position:relative;cursor:pointer}
-  .barcol .bar{width:70%;max-width:34px;background:#c9d6d1;border-radius:4px 4px 0 0;min-height:2px}
+  .barcol .bar{width:70%;max-width:34px;background:var(--bar);border-radius:4px 4px 0 0;min-height:2px}
   .barcol.sel .bar{background:var(--accent)}
   .barcol .lbl{position:absolute;bottom:-20px;font-size:10px;font-family:var(--mono);color:var(--ink-soft)}
   .barcol .val{font-size:10.5px;font-family:var(--mono);color:var(--ink-soft);margin-bottom:2px}
   table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
         border-radius:10px;overflow:hidden;font-size:13px}
   th{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);
-     text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);background:#fafbf9}
+     text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--th-bg)}
   td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
   tr:last-child td{border-bottom:none}
   td.dt{white-space:nowrap}
@@ -318,6 +333,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     <label for="files">&#8682; Update data (upload CR / AI / OE reports)</label>
     <input id="files" type="file" accept=".xlsx,.xls" multiple style="display:none">
     <div id="upmsg"></div>
+    <button id="themebtn" title="Switch light / dark mode">&#127769;</button>
   </div>
 </div></header>
 <div class="wrap">
@@ -1287,6 +1303,19 @@ function toggler(h2, body, caret, open){
 toggler('#othertoggle', '#otherais', '#othercaret', false);
 toggler('#connstoggle', '#conns', '#connscaret', true);
 toggler('#oestoggle', '#oes', '#oescaret', true);
+// light / dark mode: toggle in the header, remembered in this browser and
+// shared by both pages; first visit follows the OS preference
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  $('#themebtn').textContent = t==='dark' ? '☀️' : '🌙';
+  try{ localStorage.setItem('dashTheme', t); }catch(e){}
+}
+let savedTheme = null;
+try{ savedTheme = localStorage.getItem('dashTheme'); }catch(e){}
+applyTheme(savedTheme==='dark' || savedTheme==='light' ? savedTheme
+  : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+$('#themebtn').onclick = () =>
+  applyTheme(document.documentElement.dataset.theme==='dark' ? 'light' : 'dark');
 // per-card / per-row copy buttons
 document.addEventListener('click', e => {
   const b = e.target.closest('.copybtn');
