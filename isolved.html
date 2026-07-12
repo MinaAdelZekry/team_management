@@ -9,10 +9,14 @@
   :root{
     --ink:#1b2733; --ink-soft:#5b6b7b; --paper:#f5f6f4; --card:#ffffff;
     --line:#e2e6e1; --accent:#0f6f5c; --accent-soft:#e2f0ec;
-    --amber:#b26a00; --amber-bg:#fdf2df; --red:#b3261e; --red-bg:#fbe9e7;
+    --amber:#965900; --amber-bg:#fdf2df; --red:#b3261e; --red-bg:#fbe9e7;
     --blue:#2b5d8a; --blue-bg:#e7eff6;
     --head:#1b2733; --pop:#1b2733; --th-bg:#fafbf9; --bar:#c9d6d1;
     --ring:rgba(27,39,51,.3); --chip-mute:#ececec; --chip-mute-ink:#555;
+    /* stage colors: classic multi-hue palette, validated (s0 = intentionally
+       neutral "pending"; blues separated for colorblind safety) */
+    --s0:#8fa3bd; --s1:#5f8fd4; --s2:#38619e; --s3:#008aa0;
+    --s4:#0f9682; --s5:#3f9d54; --s6:#b26a00; --s7:#00845f;
     --mono:'SF Mono',Consolas,'Liberation Mono',monospace;
     color-scheme:light;
   }
@@ -23,6 +27,9 @@
     --blue:#7aa7cf; --blue-bg:#1c2a38;
     --head:#0d1319; --pop:#0d1319; --th-bg:#202a34; --bar:#3a4a45;
     --ring:rgba(232,237,242,.35); --chip-mute:#2c3742; --chip-mute-ink:#b6c2cd;
+    /* dark stage colors — same hues re-selected for the dark surface */
+    --s0:#7b8ca6; --s1:#6b95d6; --s2:#4a6fae; --s3:#1897ad;
+    --s4:#1fa28e; --s5:#4fa960; --s6:#c08228; --s7:#2f9d85;
     color-scheme:dark;
   }
   *{box-sizing:border-box;margin:0}
@@ -249,8 +256,9 @@ const STAGES = ["Pending Start","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready for Production","Production"];
 const STAGE_SHORT = ["Pending","Req. Gathering","Resource Asgmt",
   "Validation","Mapping","Testing","Ready for Prod","Production"];
-const STAGE_COLORS = ["#9aa5b1","#5e81ac","#4472a4","#1f7f8f",
-  "#12917f","#469a5b","#b26a00","#0f6f5c"];
+// stage colors come from CSS variables so each theme uses its own validated
+// set (classic multi-hue palette, blues separated for colorblind safety)
+const STAGE_COLORS = Array.from({length:8}, (_,i)=>`var(--s${i})`);
 const STAGE_COLS = ["Created Date","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready For Production","Production"];
 const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
@@ -267,7 +275,7 @@ const OE_STAGES = ["Pending Start","Resource Assignment","Requirement Gathering"
   "Waiting for OE Data","Sending OE File","Get Carrier Confirmation","Completed"];
 const OE_SHORT = ["Pending","Resource Asgmt","Req. Gathering",
   "Waiting Data","Sending File","Carrier Conf.","Completed"];
-const OE_COLORS = ["#9aa5b1","#5e81ac","#4472a4","#1f7f8f","#12917f","#b26a00","#0f6f5c"];
+const OE_COLORS = [0,1,2,3,4,6,7].map(i=>`var(--s${i})`);
 
 // ---------- page role ----------
 // which CR-sheet role this page groups by: the analyst page uses the
