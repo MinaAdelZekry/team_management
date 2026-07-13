@@ -559,7 +559,11 @@ const migLabel = m => m==null ? '—' : m;
 
 // ---------- core processing (used for both embedded data and uploads) ----------
 function process(crRows, aiRows, oeRows, generated){
-  const today = new Date(generated+'T00:00:00Z');
+  // each report's captured (header) date, so "days since / pending" counts are
+  // measured against the snapshot the data came from, per report
+  const rdates = RAW.dates || {};
+  const crRef = new Date((rdates.cr||generated)+'T00:00:00Z');
+  const aiRef = new Date((rdates.ai||generated)+'T00:00:00Z');
 
   // all open AIs, keyed by client+carrier; pending clock = last comment date, else start date
   const aiItems = [];
@@ -584,8 +588,8 @@ function process(crRows, aiRows, oeRows, generated){
       req: txt(r['Requestor'])||null,
       cmt: isBot ? null : txt(r['LastComment'])||null,
       last, start, eff,
-      days: eff ? daysBetween(eff, today) : null,
-      wdays: eff ? workDaysBetween(eff, today) : null,
+      days: eff ? daysBetween(eff, aiRef) : null,
+      wdays: eff ? workDaysBetween(eff, aiRef) : null,
       noComment: !last,
       used: false, cardTcs: []
     });
@@ -624,7 +628,11 @@ function process(crRows, aiRows, oeRows, generated){
       lastAi = latest.eff;
       ai = {count: items.length, latest, items};
     }
-    const lastAny = [lastCr,lastAi].filter(Boolean).sort().at(-1) || null;
+    // last activity, measured against the report it came from: CR stage
+    // activity vs the CR date, AI activity vs the AI date
+    let lastAny = null, idleRef = crRef;
+    if(lastAi && (!lastCr || lastAi >= lastCr)){ lastAny = lastAi; idleRef = aiRef; }
+    else if(lastCr){ lastAny = lastCr; }
     const milestones = {};
     for(const [col,label] of Object.entries(MS)){
       // Testing milestone follows the same rule as the rail: First Test File
@@ -646,8 +654,8 @@ function process(crRows, aiRows, oeRows, generated){
       stageDates,
       noTestFile: !toISO(r['First Test File']),
       milestones, lastCr, ai, lastAny,
-      idleDays: lastAny ? daysBetween(lastAny, today) : null,
-      idleWdays: lastAny ? workDaysBetween(lastAny, today) : null
+      idleDays: lastAny ? daysBetween(lastAny, idleRef) : null,
+      idleWdays: lastAny ? workDaysBetween(lastAny, idleRef) : null
     });
   }
 

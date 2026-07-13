@@ -115,7 +115,10 @@ Sorted by days pending, descending.
 ### 4.1 Calendar days
 
 `daysBetween` = whole days between two `YYYY-MM-DD` dates (UTC midnight to UTC midnight).
-"Today" is the data's `generated` date, not the viewer's clock.
+The reference "now" for a day-count is the **captured date of the report the data came from**
+(the header "Data as of" date), never the viewer's clock: CR-sourced counts use the CR date,
+AI-sourced counts use the AI date. (`generated` — the newest of those — is only a fallback when
+a per-report date is missing.)
 
 ### 4.2 Working days — differs per page
 
@@ -129,11 +132,13 @@ weekend days. Reports state the rule in their header (`wd = working days (… ex
 ### 4.3 AI pending clock
 
 `effective date = last human comment date, else AI start date`.
-Pending days/working-days count from that date to the data date.
+Pending days/working-days count from that date to the **AI report's** captured date.
 
 ### 4.4 Idle time on connections
 
 `last activity = max(any CR milestone/stage date, latest AI effective date)`.
+Idle counts to the captured date of the report that supplied the latest activity — CR activity
+to the CR date, AI activity to the AI date — so weekends/staleness in one report don't skew it.
 
 ### 4.5 Warning intervals (one rule for all day-based colors)
 
