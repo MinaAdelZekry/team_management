@@ -157,7 +157,9 @@ Mapping → Testing → Ready for Production → Production.
 
 - Each stage's **start date** comes from its CR column; `Pending Start` uses `Created Date`.
 - **Testing override**: Testing starts at `First Test File` when recorded, else the `Testing`
-  column date. A CR at/past Testing with no test file gets a `*` marker on the rail.
+  column date. Exception: if the First Test File date is more than **30 days before** the
+  Testing-stage date (a stale/wrong entry), the Testing-stage date is used instead. A CR at/past
+  Testing with no test file gets a `*` marker on the rail.
 - A stage's **duration** = its start → the start of the **next stage that has a date** (missing
   intermediate stages are skipped, so the timeline always tiles with no gaps/overlaps).
 - A stage with no later dated stage is "in progress" — it has no completed duration.

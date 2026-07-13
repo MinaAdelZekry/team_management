@@ -421,6 +421,17 @@ const isMig = m => !!m && !['no','false','0','n','none','-'].includes(String(m).
 const migLabel = m => m==null ? '—' : m;
 
 // ---------- core processing (used for both embedded data and uploads) ----------
+// Testing starts at the First Test File date; but if that date is more than
+// FTF_MAX_LEAD days before the Testing-stage date, it's treated as a stale /
+// wrong entry and the Testing-stage date is used instead
+const FTF_MAX_LEAD = 30;
+function testingStart(r){
+  const ftf = toISO(r['First Test File']);
+  const tst = toISO(r['Testing']);
+  if(!ftf) return tst;
+  if(tst && daysBetween(ftf, new Date(tst+'T00:00:00Z')) > FTF_MAX_LEAD) return tst;
+  return ftf;
+}
 function process(crRows, aiRows, oeRows, generated){
   // each report's captured (header) date, so "days since / pending" counts are
   // measured against the snapshot the data came from, per report
@@ -498,16 +509,14 @@ function process(crRows, aiRows, oeRows, generated){
     else if(lastCr){ lastAny = lastCr; }
     const milestones = {};
     for(const [col,label] of Object.entries(MS)){
-      // Testing milestone follows the same rule as the rail: First Test File
-      // date when recorded, else the Testing column date
-      const v = col==='Testing' ? (toISO(r['First Test File']) || toISO(r['Testing'])) : toISO(r[col]);
+      // Testing milestone follows the same rule as the rail (see testingStart)
+      const v = col==='Testing' ? testingStart(r) : toISO(r[col]);
       if(v) milestones[label]=v;
     }
-    // Testing phase starts at the First Test File date, falling back to the
-    // Testing column when no test file date is recorded
+    // Testing phase starts at the First Test File date (see testingStart)
     const stageDates = STAGE_COLS.map(col=>col?toISO(r[col]):null);
     const ti = STAGE_COLS.indexOf('Testing');
-    stageDates[ti] = toISO(r['First Test File']) || stageDates[ti];
+    stageDates[ti] = testingStart(r);
     conns.push({
       id: r['Request ID'], tc: crEmp(r),
       carrier: txt(r['Carrier']), customer: txt(r['Customer']),
@@ -544,7 +553,7 @@ function process(crRows, aiRows, oeRows, generated){
     if(!crEmp(r)) continue;
     const sd = STAGE_COLS.map(col=>col?toISO(r[col]):null);
     const ti = STAGE_COLS.indexOf('Testing');
-    sd[ti] = toISO(r['First Test File']) || sd[ti];
+    sd[ti] = testingStart(r);
     stageRows.push({tc: crEmp(r), sd, id: r['Request ID'],
       customer: txt(r['Customer']), carrier: txt(r['Carrier'])});
   }
