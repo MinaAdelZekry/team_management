@@ -38,7 +38,14 @@
   header{background:var(--head);color:#fff;padding:14px 16px}
   header .wrap{display:flex;justify-content:space-between;align-items:flex-start;gap:16px 24px;flex-wrap:wrap}
   header h1{font-size:19px;font-weight:650;letter-spacing:.2px}
-  header .sub{color:#9fb0bf;font-size:12.5px;margin-top:3px;font-family:var(--mono)}
+  header .sub{color:#9fb0bf;font-size:12.5px;margin-top:5px;font-family:var(--mono);display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+  header .sub #gen{display:flex;flex-wrap:wrap;gap:6px}
+  header .sub .dchip{font-size:11px;font-weight:650;font-family:var(--mono);
+        padding:2px 9px;border-radius:20px;white-space:nowrap}
+  header .sub .dchip b{font-weight:700}
+  header .sub .dchip.idle-ok{background:var(--accent-soft);color:var(--accent)}
+  header .sub .dchip.idle-warn{background:var(--amber-bg);color:var(--amber)}
+  header .sub .dchip.idle-bad{background:var(--red-bg);color:var(--red)}
   .hright{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
   .htop{display:flex;align-items:center;gap:14px}
   .viewlink{color:#cfe0ee;font-size:12.5px;font-family:var(--mono);text-decoration:underline dotted;
@@ -620,8 +627,6 @@ async function restoreSaved(){
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.dates) RAW.dates = saved.dates;
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
-    const m = $('#upmsg'); m.className='ok';
-    m.textContent = `Using data uploaded ${saved.generated} (saved in this browser)`;
   } else if(saved){
     dbDel(DB_KEY).catch(()=>{});
   }
@@ -643,8 +648,20 @@ function dataDates(sep){
   const parts = [['CR',d.cr],['AI',d.ai],['OE',d.oe]].filter(x=>x[1]).map(x=>x[0]+' '+x[1]);
   return parts.length ? parts.join(sep) : DATA.generated;
 }
+// the same dates as coloured chips for the header, shaded by how many working
+// days old each report is (same thresholds as the idle chips)
+function dateChips(){
+  const d = RAW.dates || {};
+  const items = [['CR',d.cr],['AI',d.ai],['OE',d.oe]].filter(x=>x[1]);
+  if(!items.length) return esc(DATA.generated || '');
+  const nowMid = new Date(localDay(new Date())+'T00:00:00Z');
+  return items.map(([k,v])=>{
+    const age = workDaysBetween(v, nowMid);
+    return `<span class="dchip ${idleCls(age)}" title="${age} working day${age===1?'':'s'} old">${k} <b>${v}</b></span>`;
+  }).join('');
+}
 function initSelectors(){
-  $('#gen').textContent = dataDates(' · ');
+  $('#gen').innerHTML = dateChips();
   const activeCounts = {};
   DATA.connections.forEach(c=>activeCounts[c.tc]=(activeCounts[c.tc]||0)+1);
   const emps = [...DATA.employees].sort((a,b)=>{
