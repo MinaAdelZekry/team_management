@@ -43,9 +43,11 @@
   header .sub .dchip{font-size:11px;font-weight:650;font-family:var(--mono);
         padding:2px 9px;border-radius:20px;white-space:nowrap}
   header .sub .dchip b{font-weight:700}
-  header .sub .dchip.idle-ok{background:var(--accent-soft);color:var(--accent)}
-  header .sub .dchip.idle-warn{background:var(--amber-bg);color:var(--amber)}
-  header .sub .dchip.idle-bad{background:var(--red-bg);color:var(--red)}
+  /* the header is dark in both themes, so chips use a translucent tint with
+     bright status text rather than the pale card-surface colours */
+  header .sub .dchip.idle-ok{background:rgba(63,181,154,.15);color:#6fd0b6}
+  header .sub .dchip.idle-warn{background:rgba(224,162,74,.17);color:#e8bd77}
+  header .sub .dchip.idle-bad{background:rgba(229,115,115,.17);color:#f0a19d}
   .hright{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
   .htop{display:flex;align-items:center;gap:14px}
   .viewlink{color:#cfe0ee;font-size:12.5px;font-family:var(--mono);text-decoration:underline dotted;
