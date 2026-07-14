@@ -708,12 +708,12 @@ function render(){
   const mine = DATA.production.filter(p=>p.tc===curEmp);
   const others = otherFor(curEmp);
   const openAIs = conns.reduce((s,c)=>s+(c.ai?c.ai.count:0),0);
-  const mapN = conns.filter(c=>stageIdx(c.stage)===STAGES.indexOf('Mapping')).length;
-  const testN = conns.filter(c=>stageIdx(c.stage)===STAGES.indexOf('Testing')).length;
+  const stageCounts = STAGES.map((_,i)=>conns.filter(c=>stageIdx(c.stage)===i).length);
+  const stageSub = STAGES.map((s,i)=>stageCounts[i]?`${stageCounts[i]} ${s.toLowerCase()}`:null).filter(Boolean).join(' · ');
   const myResp = conns.reduce((s,c)=>s+(c.ai?c.ai.items.filter(i=>i.on===curEmp).length:0),0);
 
   $('#kpis').innerHTML = [
-    [conns.length,'Active connections', `${mapN} mapping · ${testN} testing`],
+    [conns.length,'Active connections', stageSub],
     [conns.filter(c=>c.status==='On Hold').length,'On hold'],
     [openAIs,'Open action items', myResp?`${myResp} pending on ${ROLE==='tc'?'the Analyst':'the iSolved contact'}`:''],
     [oes.length,'In-progress OEs'],
@@ -942,7 +942,7 @@ function connCard(c){
     <div class="top">
       <div class="name"><a class="lnk" href="${crUrl(c.id)}" target="_blank">${c.carrier} <small>— ${c.customer}</small></a> <small class="dt">CR #${c.id}</small></div>
       <div class="chips">
-        ${c.type && !isForms(c)?`<span class="chip ctype">${c.type}</span>`:''}
+        ${isForms(c)?`<span class="chip ctype">${c.type}</span>`:''}
         ${isMig(c.mig)?`<span class="chip" style="background:var(--blue-bg);color:var(--blue)">${/^yes$/i.test(c.mig)?'Migration':c.mig}</span>`
           :(c.mig!=null?'<span class="chip" style="background:var(--accent-soft);color:var(--accent)">New Orders</span>':'')}
         <span class="chip ${statusCls(c.status)}">${c.status}</span>
