@@ -710,13 +710,15 @@ function render(){
   const openAIs = conns.reduce((s,c)=>s+(c.ai?c.ai.count:0),0);
   const stageCounts = STAGES.map((_,i)=>conns.filter(c=>stageIdx(c.stage)===i).length);
   const stageSub = STAGES.map((s,i)=>stageCounts[i]?`${stageCounts[i]} ${s.toLowerCase()}`:null).filter(Boolean).join(' · ');
+  const oeStageCounts = OE_STAGES.map((_,i)=>oes.filter(o=>oeStageIdx(o.stage)===i).length);
+  const oeSub = OE_STAGES.map((s,i)=>oeStageCounts[i]?`${oeStageCounts[i]} ${s.toLowerCase()}`:null).filter(Boolean).join(' · ');
   const myResp = conns.reduce((s,c)=>s+(c.ai?c.ai.items.filter(i=>i.on===curEmp).length:0),0);
 
   $('#kpis').innerHTML = [
     [conns.length,'Active connections', stageSub],
     [conns.filter(c=>c.status==='On Hold').length,'On hold'],
     [openAIs,'Open action items', myResp?`${myResp} pending on ${ROLE==='tc'?'the Analyst':'the iSolved contact'}`:''],
-    [oes.length,'In-progress OEs'],
+    [oes.length,'In-progress OEs', oeSub],
     [mine.filter(p=>p.month===thisMonth).length,'Production this month'],
   ].map(([v,l,d])=>`<div class="kpi"><b>${v}</b><span>${l}</span>${d?`<span class="kpi-sub">${d}</span>`:''}</div>`).join('');
 
