@@ -96,6 +96,7 @@
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
   .kpi b{display:block;font-size:26px;font-weight:700}
   .kpi span{font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.5px}
+  .kpi .kpi-sub{display:block;font-size:11px;color:var(--ink-soft);text-transform:none;letter-spacing:0;margin-top:3px}
   h2{font-size:14px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-soft);
      margin:22px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
   .conn{background:var(--card);border:1px solid var(--line);border-radius:12px;
@@ -111,6 +112,7 @@
   .chip.status-inprogress{background:var(--accent-soft);color:var(--accent)}
   .chip.status-blocked{background:var(--red-bg);color:var(--red)}
   .chip.status-onhold,.chip.status-notstarted{background:var(--chip-mute);color:var(--chip-mute-ink)}
+  .chip.ctype{background:transparent;box-shadow:inset 0 0 0 1px var(--line);color:var(--ink-soft)}
   .chip.idle-ok{background:var(--accent-soft);color:var(--accent)}
   .chip.idle-warn{background:var(--amber-bg);color:var(--amber)}
   .chip.idle-bad{background:var(--red-bg);color:var(--red)}
@@ -243,7 +245,7 @@
   <h2 id="connstoggle" style="cursor:pointer;user-select:none"><span id="connscaret">&#9662;</span> In-progress connections <span id="connscount"></span></h2>
   <div id="conns"></div>
 
-  <h2 id="othertoggle" style="cursor:pointer;user-select:none"><span id="othercaret">&#9656;</span> Other open action items <span id="othercount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; on this analyst's other CRs, requested by them, or where they're the responsible party &middot; click to expand</span></h2>
+  <h2 id="othertoggle" style="cursor:pointer;user-select:none"><span id="othercaret">&#9656;</span> Late action items <span id="othercount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; on this analyst's other CRs, requested by them, or where they're the responsible party &middot; click to expand</span></h2>
   <div id="otherais" style="display:none"></div>
 
   <h2 id="oestoggle" style="cursor:pointer;user-select:none"><span id="oescaret">&#9662;</span> In-progress OE requests <span id="oescount"></span></h2>
@@ -706,21 +708,24 @@ function render(){
   const mine = DATA.production.filter(p=>p.tc===curEmp);
   const others = otherFor(curEmp);
   const openAIs = conns.reduce((s,c)=>s+(c.ai?c.ai.count:0),0);
+  const mapN = conns.filter(c=>stageIdx(c.stage)===STAGES.indexOf('Mapping')).length;
+  const testN = conns.filter(c=>stageIdx(c.stage)===STAGES.indexOf('Testing')).length;
+  const myResp = conns.reduce((s,c)=>s+(c.ai?c.ai.items.filter(i=>i.on===curEmp).length:0),0);
 
   $('#kpis').innerHTML = [
-    [conns.length,'Active connections'],
+    [conns.length,'Active connections', `${mapN} mapping · ${testN} testing`],
     [conns.filter(c=>c.status==='On Hold').length,'On hold'],
-    [openAIs,'Open action items'],
+    [openAIs,'Open action items', myResp?`${myResp} pending on ${ROLE==='tc'?'the Analyst':'the iSolved contact'}`:''],
     [oes.length,'In-progress OEs'],
     [mine.filter(p=>p.month===thisMonth).length,'Production this month'],
-  ].map(([v,l])=>`<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('');
+  ].map(([v,l,d])=>`<div class="kpi"><b>${v}</b><span>${l}</span>${d?`<span class="kpi-sub">${d}</span>`:''}</div>`).join('');
 
   $('#conns').innerHTML = conns.length ? conns.map(connCard).join('')
       : '<div class="empty">No in-progress connections for this employee.</div>';
   $('#connscount').textContent = `(${conns.length})`;
   $('#othercount').textContent = `(${others.length})`;
   $('#otherais').innerHTML = others.length ? aiTable(others)
-      : '<div class="empty">No other open action items for this employee.</div>';
+      : '<div class="empty">No late action items for this employee.</div>';
   $('#oes').innerHTML = oes.length ? oes.map(oeCard).join('')
       : '<div class="empty">No in-progress OE requests for this employee. Upload the OE report above to load OE data.</div>';
   $('#oescount').textContent = `(${oes.length})`;
@@ -895,6 +900,8 @@ function tipsFor(stages, sd, idx){
 const TESTING_IDX = STAGES.indexOf('Testing');
 // a CR that reached Testing without a First Test File date gets a * marker
 const testStar = c => c.noTestFile && stageIdx(c.stage) >= TESTING_IDX;
+// "Forms" requests skip the EDI pipeline, so the card shows the request type as the stage
+const isForms = c => /^\s*forms?\s*(only)?\s*$/i.test(c.type||'');
 
 function stageTips(c){
   const tips = tipsFor(STAGES, c.stageDates || [], stageIdx(c.stage));
@@ -935,6 +942,7 @@ function connCard(c){
     <div class="top">
       <div class="name"><a class="lnk" href="${crUrl(c.id)}" target="_blank">${c.carrier} <small>— ${c.customer}</small></a> <small class="dt">CR #${c.id}</small></div>
       <div class="chips">
+        ${isForms(c)?`<span class="chip ctype">${c.type}</span>`:''}
         ${isMig(c.mig)?`<span class="chip" style="background:var(--blue-bg);color:var(--blue)">${/^yes$/i.test(c.mig)?'Migration':c.mig}</span>`
           :(c.mig!=null?'<span class="chip" style="background:var(--accent-soft);color:var(--accent)">New Orders</span>':'')}
         <span class="chip ${statusCls(c.status)}">${c.status}</span>
@@ -944,7 +952,7 @@ function connCard(c){
     </div>
     <div class="rail">${rail}</div>
     <div class="meta meta4">
-      <div>Stage <b>${c.stage} (${idx+1}/${STAGES.length})</b></div>
+      <div>Stage <b>${isForms(c)?c.type:`${c.stage} (${idx+1}/${STAGES.length})`}</b></div>
       <div>Instance <b>${c.instance||'—'}</b></div>
       <div>Migration <b>${migLabel(c.mig)}</b></div>
       <div>Assigned <b class="dt">${fmt(c.assigned)}</b></div>
@@ -1048,7 +1056,7 @@ function connReport(c){
   const L = [];
   L.push(`${c.carrier} — ${c.customer} (CR #${c.id})`);
   L.push(crUrl(c.id));
-  L.push(`Status: ${c.status} · Stage: ${c.stage}${testStar(c)?' * (no test file sent yet)':''} · Migration: ${migLabel(c.mig)}`);
+  L.push(`Status: ${c.status} · Stage: ${isForms(c)?c.type:`${c.stage}${testStar(c)?' * (no test file sent yet)':''}`} · Migration: ${migLabel(c.mig)}`);
   L.push(`Assigned: ${c.assigned||'—'} · Last CR update: ${c.lastCr||'—'} · Last activity: ${c.lastAny||'—'}${c.idleDays!=null?` (${dur(c.idleDays,c.idleWdays)} idle)`:''}`);
   if(c.ai){
     L.push(`Action items (${c.ai.count} open):`);
@@ -1114,7 +1122,7 @@ function buildReport(){
   if(others.length){
     L.push('');
     L.push(`${'='.repeat(70)}`);
-    L.push(`OTHER OPEN ACTION ITEMS — on this analyst's other CRs, requested by them, or where they're the responsible party (${others.length}):`);
+    L.push(`LATE ACTION ITEMS — on this analyst's other CRs, requested by them, or where they're the responsible party (${others.length}):`);
     others.forEach(a=>{
       const cid = a.cr ? a.cr.id : (a.crid!=null ? a.crid : null);
       L.push(`  - ${a.title||('AI #'+a.id)} — ${a.client} / ${a.carrier}${cid!=null?` (CR #${cid}${a.cr?`, ${a.cr.status}`:''})`:''}`);
