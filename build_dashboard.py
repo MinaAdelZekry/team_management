@@ -865,14 +865,18 @@ function render(){
   renderStageAvgs();
 }
 
-// rank an employee by production count among everyone with production CRs
+// people excluded from production rankings (e.g. leads); their own counts still
+// display — they just don't occupy a rank or count toward anyone's "of N"
+const RANK_EXCLUDE = new Set(['dina medhat']);
+const inRank = name => !!name && !RANK_EXCLUDE.has(String(name).trim().toLowerCase());
+// rank an employee by production count among ranked people with production CRs
 // matching pred (ties share the same rank)
 function prodRank(emp, pred){
   const counts = {};
   DATA.production.forEach(p=>{ if(p.tc && pred(p)) counts[p.tc]=(counts[p.tc]||0)+1; });
   const c = counts[emp]||0;
-  const all = Object.values(counts);
-  return {c, n: all.length, r: 1 + all.filter(v=>v>c).length};
+  const pool = Object.entries(counts).filter(([n])=>inRank(n)).map(([,v])=>v);
+  return {c, n: pool.length, r: 1 + pool.filter(v=>v>c).length, ranked: inRank(emp)};
 }
 
 // full production ranking (month or year scope), shown in the report modal
@@ -882,7 +886,7 @@ function showRankList(scope){
   const label = isYear ? curAvgYear : curMonth;
   const pred = isYear ? (p=>p.month.slice(0,4)===curAvgYear) : (p=>p.month===curMonth);
   const counts = {};
-  DATA.production.forEach(p=>{ if(p.tc && pred(p)) counts[p.tc]=(counts[p.tc]||0)+1; });
+  DATA.production.forEach(p=>{ if(p.tc && inRank(p.tc) && pred(p)) counts[p.tc]=(counts[p.tc]||0)+1; });
   const list = Object.entries(counts).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
   const L = [`PRODUCTION RANKING — ${label}`, ''];
   let r = 0, prev = null;
@@ -942,7 +946,7 @@ function renderStageAvgs(){
   // back to Production date) with the rank among everyone who produced then
   const yrank = prodRank(curEmp, p=>p.month.slice(0,4)===curAvgYear);
   $('#avgprodcount').innerHTML = `${yrank.c} CR${yrank.c===1?'':'s'} in ${curAvgYear}`
-    + (yrank.c ? ` &middot; <a class="lnk rankbtn" data-scope="year" title="show the full ranking">rank #${yrank.r} of ${yrank.n}</a>` : '');
+    + (yrank.c && yrank.ranked ? ` &middot; <a class="lnk rankbtn" data-scope="year" title="show the full ranking">rank #${yrank.r} of ${yrank.n}</a>` : '');
   const ints = [];   // completed intervals on this year's produced CRs
   for(const s of mine){
     if(prodYearOf(s)!==curAvgYear) continue;
@@ -1161,7 +1165,7 @@ function renderProd(months, mine){
   const mrank = prodRank(curEmp, p=>p.month===curMonth);
   $('#prodcount').innerHTML = `<b>${rows.length}</b> for ${curEmp} &middot; team total ${team}`
     + (team ? ` &middot; <b>${Math.round(rows.length/team*1000)/10}%</b> of team total` : '')
-    + (rows.length ? ` &middot; <a class="lnk rankbtn" data-scope="month" title="show the full ranking">rank <b>#${mrank.r}</b> of ${mrank.n}</a>` : '');
+    + (rows.length && mrank.ranked ? ` &middot; <a class="lnk rankbtn" data-scope="month" title="show the full ranking">rank <b>#${mrank.r}</b> of ${mrank.n}</a>` : '');
   $('#prodtable').innerHTML = rows.length ? `<table>
     <tr><th>CR</th><th>Customer - Carrier</th><th>Ready for Production date</th><th>Production date</th><th>Status</th><th></th></tr>
     ${rows.map(p=>`<tr id="prod-${p._i}"><td class="dt"><a class="lnk" href="${crUrl(p.id)}" target="_blank">#${p.id}</a></td><td>${p.customer} - ${p.carrier}</td>
