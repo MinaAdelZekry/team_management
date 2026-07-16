@@ -1666,7 +1666,7 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
     <div id="gnote" class="hnote"></div>
   </div>
 
-  <h2>Pipeline stage duration <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; average time connections spent in each stage &middot; year <select id="duryear" class="yearsel"></select> &middot; request type <select id="durtype" class="yearsel"></select> &middot; migration <select id="durmig" class="yearsel"></select> &middot; outlier filter <select id="durconf" class="yearsel"><option value="90">90%</option><option value="95">95%</option><option value="99">99%</option><option value="100">off</option></select> &middot; total: <b id="durcount" style="color:var(--ink)"></b></span></h2>
+  <h2>Pipeline stage duration <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; average time connections spent in each stage &middot; year <select id="duryear" class="yearsel"></select> &middot; show <select id="durstate" class="yearsel"><option value="All">all</option><option value="prod">production</option><option value="inprog">in progress</option></select> &middot; request type <select id="durtype" class="yearsel"></select> &middot; migration <select id="durmig" class="yearsel"></select> &middot; outlier filter <select id="durconf" class="yearsel"><option value="90">90%</option><option value="95">95%</option><option value="99">99%</option><option value="100">off</option></select> &middot; total: <b id="durcount" style="color:var(--ink)"></b></span></h2>
   <div class="card" id="stagedur"></div>
 
   <h2>Cycle time trend <span class="note">&middot; average days from assignment to ready-for-production, by month produced</span></h2>
@@ -1877,7 +1877,7 @@ function teamStats(){
 // outside the chosen confidence band are dropped as outliers (analyst-page rule).
 const AVG_FIRST_STAGE = 0;   // include every stage from Pending Start onward
 const DUR_Z = {90:1.645, 95:1.96, 99:2.576};
-let curDurYear = null, curDurType = 'All', curDurMig = 'All', curDurConf = 99;
+let curDurYear = null, curDurState = 'All', curDurType = 'All', curDurMig = 'All', curDurConf = 99;
 // split stage intervals into kept / outliers using the chosen confidence band
 // (mean ± z·σ); 'off' keeps everything, samples under 3 are never trimmed
 function splitDurOutliers(list){
@@ -1911,16 +1911,22 @@ function renderStageDur(){
   const ysel = $('#duryear');
   ysel.innerHTML = (years.length?years:[curDurYear]).map(y=>`<option${y===curDurYear?' selected':''}>${y}</option>`).join('');
   ysel.onchange = e => { curDurYear = e.target.value; renderStageDur(); };
-  // request-type dropdown — built from the request types produced that year
+  // in-progress / production dropdown — narrows the year's connections to one kind
   const inYear = rows.filter(r=>r.year===curDurYear);
-  const types = [...new Set(inYear.map(r=>r.type))].sort();
+  const ssel = $('#durstate');
+  ssel.value = curDurState;
+  ssel.onchange = e => { curDurState = e.target.value; renderStageDur(); };
+  const inState = inYear.filter(r => curDurState==='All' ? true
+    : curDurState==='prod' ? r.produced : !r.produced);
+  // request-type dropdown — built from the request types present in that slice
+  const types = [...new Set(inState.map(r=>r.type))].sort();
   if(curDurType!=='All' && !types.includes(curDurType)) curDurType = 'All';
   const tsel = $('#durtype');
   tsel.innerHTML = ['All',...types].map(tp=>
     `<option value="${esc(tp)}"${tp===curDurType?' selected':''}>${tp==='All'?'All types':esc(tp)}</option>`).join('');
   tsel.onchange = e => { curDurType = e.target.value; renderStageDur(); };
-  // migration dropdown — built from the migration programmes produced that year
-  const migs = [...new Set(inYear.map(r=>r.mig))].sort();
+  // migration dropdown — built from the migration programmes present in that slice
+  const migs = [...new Set(inState.map(r=>r.mig))].sort();
   if(curDurMig!=='All' && !migs.includes(curDurMig)) curDurMig = 'All';
   const msel = $('#durmig');
   msel.innerHTML = ['All',...migs].map(mg=>
@@ -1931,11 +1937,11 @@ function renderStageDur(){
   csel.value = String(curDurConf);
   csel.onchange = e => { curDurConf = +e.target.value; renderStageDur(); };
 
-  const sel = inYear.filter(r=>(curDurType==='All' || r.type===curDurType)
+  const sel = inState.filter(r=>(curDurType==='All' || r.type===curDurType)
     && (curDurMig==='All' || r.mig===curDurMig));
   const nProd = sel.filter(r=>r.produced).length, nProg = sel.length - nProd;
   $('#durcount').textContent = `${sel.length} connection${sel.length===1?'':'s'} in ${curDurYear}`
-    + (nProg ? ` (${nProd} produced · ${nProg} in progress)` : '')
+    + (curDurState==='All' && nProg ? ` (${nProd} produced · ${nProg} in progress)` : '')
     + (curDurType==='All' ? '' : ` · ${curDurType}`)
     + (curDurMig==='All' ? '' : ` · ${curDurMig}`);
   // interval per stage, kept as objects so removed outliers can be listed. The
