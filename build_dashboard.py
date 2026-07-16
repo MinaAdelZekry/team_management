@@ -39,6 +39,9 @@ OE_KEEP = ["OERequestID", "ConnectivityRequestID", "ClientName", "CarrierName",
            "TechnicalContact", "DataReadyDate", "OEFileSubmissionDate",
            "IsolvedContact", "CanResumeProductionPYSD", "ResumedProduction",
            "IsDraftOERequest", "Created", "CreatedBy"]
+# MigrationSummary: joins to a CR by ConnectivityRequestID; MigrationTestingDate
+# splits the Testing stage into internal (before) and carrier (after) testing
+MS_KEEP = ["ConnectivityRequestID", "MigrationTestingDate"]
 ACTIVE = ["In Progress", "Blocked", "On Hold", "Not Started"]
 
 # mirrors norm()/baseKey() in the dashboard JS so the embed mask keeps every
@@ -79,6 +82,25 @@ def records(df, keep):
     return [{k: v for k, v in r.items() if v is not None} for r in recs]
 
 
+def find_ms(paths):
+    """Return the MigrationSummary frame from wherever it lives — a sheet in any
+    of the given workbooks, or a standalone file — identified by the presence of
+    the MigrationTestingDate column. First match wins; None if not present."""
+    for p in paths:
+        try:
+            with pd.ExcelFile(p) as xl:
+                for sh in xl.sheet_names:
+                    try:
+                        cols = pd.read_excel(xl, sheet_name=sh, nrows=0).columns
+                    except Exception:
+                        continue
+                    if "MigrationTestingDate" in cols:
+                        return pd.read_excel(xl, sheet_name=sh)
+        except Exception:
+            continue
+    return None
+
+
 def main():
     args = sys.argv[1:]
     out = "Analyst_Dashboard.html"
@@ -113,11 +135,17 @@ def main():
     if oe_path:
         oe = pd.read_excel(oe_path)
         oe_recs = records(oe[oe["Status"].isin(ACTIVE)], OE_KEEP)
+    ms_recs = []
+    ms = find_ms(args)
+    if ms is not None:
+        if "MigrationTestingDate" in ms.columns:
+            ms["MigrationTestingDate"] = pd.to_datetime(ms["MigrationTestingDate"], errors="coerce")
+        ms_recs = records(ms, MS_KEEP)
     today = datetime.now().strftime("%Y-%m-%d")
     raw = {"generated": today,
            "dates": {"cr": today, "ai": today, "oe": today if oe_path else None},
            "cr": records(cr[mask], CR_KEEP), "ai": records(ai, AI_KEEP),
-           "oe": oe_recs}
+           "oe": oe_recs, "ms": ms_recs}
 
     raw_json = json.dumps(raw, ensure_ascii=False)
 
@@ -140,7 +168,7 @@ def main():
     with open(team_out, "w", encoding="utf-8") as f:
         f.write(TEAM_TEMPLATE.replace("__RAW__", raw_json))
     print(f"Wrote {out} + {iso_out} + {team_out}: {int(mask.sum())} CR rows, "
-          f"{len(ai)} AI rows, {len(oe_recs)} OE rows embedded")
+          f"{len(ai)} AI rows, {len(oe_recs)} OE rows, {len(ms_recs)} MS rows embedded")
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -784,6 +812,7 @@ const dbDel = key => idb().then(db => new Promise((res,rej)=>{
 // saved copy becomes the source of truth; otherwise drop the stale copy so a
 // fresh build that carries data starts clean
 RAW.oe = RAW.oe || [];
+RAW.ms = RAW.ms || [];
 RAW.dates = RAW.dates || {};
 async function restoreSaved(){
   let saved = null;
@@ -795,6 +824,7 @@ async function restoreSaved(){
   if(saved && (!RAW.cr.length || saved.generated > RAW.generated)){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
+    if(saved.ms && saved.ms.length) RAW.ms = saved.ms;
     if(saved.dates) RAW.dates = saved.dates;
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
   } else if(saved){
@@ -1464,7 +1494,7 @@ $('#files').onchange = async e => {
     const files = [...e.target.files];
     if(!files.length) return;
     msg.className=''; msg.textContent='Reading…';
-    let newCr=null, newAi=null, newOe=null, names=[];
+    let newCr=null, newAi=null, newOe=null, newMs=null, names=[];
     let crDate=null, aiDate=null, oeDate=null;
     for(const f of files){
       // no cellDates: date cells stay raw Excel serial numbers, which encode
@@ -1472,15 +1502,20 @@ $('#files').onchange = async e => {
       const wb = XLSX.read(await f.arrayBuffer());
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
       const cols = new Set(Object.keys(rows[0]||{}));
-      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); names.push(f.name+' (AI)'); }
-      else if(cols.has('OERequestID')){ newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); names.push(f.name+' (OE)'); }
-      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); names.push(f.name+' (CR)'); }
-      else names.push(f.name+' (unrecognized — skipped)');
+      const tags = [];
+      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); }
+      else if(cols.has('OERequestID')){ newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
+      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); }
+      // MigrationSummary — any sheet in the workbook carrying MigrationTestingDate
+      const mss = wb.SheetNames.find(n=>((XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1})[0])||[]).includes('MigrationTestingDate'));
+      if(mss){ newMs = XLSX.utils.sheet_to_json(wb.Sheets[mss], {defval:null}); tags.push('MigrationSummary'); }
+      names.push(f.name + (tags.length ? ` (${tags.join(', ')})` : ' (unrecognized — skipped)'));
     }
-    if(!newCr && !newAi && !newOe) throw new Error('No file matched the CR, AI or OE report format.');
+    if(!newCr && !newAi && !newOe && !newMs) throw new Error('No file matched the CR, AI, OE or MigrationSummary report format.');
     if(newCr){ RAW.cr = newCr; RAW.dates.cr = crDate; }
     if(newAi){ RAW.ai = newAi; RAW.dates.ai = aiDate; }
     if(newOe){ RAW.oe = newOe; RAW.dates.oe = oeDate; }
+    if(newMs){ RAW.ms = newMs; }
     // "today" for day-based calcs = the newest report date currently loaded
     RAW.generated = [RAW.dates.cr, RAW.dates.ai, RAW.dates.oe].filter(Boolean).sort().at(-1) || localDay(new Date());
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
@@ -1628,8 +1663,25 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
   .stagebars .scnt{font-family:var(--mono);font-size:11px;color:var(--ink-soft);text-align:right}
   .stagebars .scnt .outbtn{color:var(--amber);cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}
   .stagebars .scnt .outbtn:hover{color:var(--red)}
+  .stagebars .scnt .msbtn{color:var(--blue);cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}
+  .stagebars .scnt .msbtn:hover{color:var(--ink)}
   .stagebars .souts{grid-column:1/-1;background:var(--paper);border:1px dashed var(--line);border-radius:8px;
         padding:8px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:4px;margin:-2px 0 4px}
+  .stagebars .msplit{grid-column:1/-1;display:grid;grid-template-columns:minmax(150px,230px) minmax(60px,1fr) max-content max-content;
+        gap:8px 14px;align-items:center;background:var(--paper);border:1px dashed var(--line);border-radius:8px;padding:10px 12px;margin:-2px 0 6px}
+  .stagebars .msplit .msrow{display:contents}
+  .stagebars .msplit .msname{display:flex;align-items:flex-start;gap:8px}
+  .stagebars .msplit .msname i{width:9px;height:9px;border-radius:3px;display:inline-block;flex:none;margin-top:3px}
+  .stagebars .msplit .msname .mslbl{display:flex;flex-direction:column;line-height:1.25;font-size:12.5px;font-weight:600}
+  .stagebars .msplit .msname .mslbl small{color:var(--ink-soft);font-weight:400;font-size:11px}
+  .stagebars .msplit .mstrack{background:var(--card);border-radius:6px;height:12px;overflow:hidden}
+  .stagebars .msplit .msbar{height:100%;border-radius:6px;min-width:2px}
+  .stagebars .msplit .msval{font-family:var(--mono);font-size:12px;font-weight:700;text-align:right}
+  .stagebars .msplit .mscnt{font-family:var(--mono);font-size:11px;color:var(--ink-soft);text-align:right}
+  .stagebars .msplit .mscnt .outbtn{color:var(--amber);cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}
+  .stagebars .msplit .mscnt .outbtn:hover{color:var(--red)}
+  .stagebars .msplit .msouts{grid-column:1/-1;display:flex;flex-direction:column;gap:3px;font-size:12px;padding:4px 2px 2px;border-top:1px dashed var(--line)}
+  @media(max-width:600px){ .stagebars .msplit{grid-template-columns:minmax(120px,1fr) 1fr max-content} .stagebars .msplit .mscnt{display:none} }
   @media(max-width:600px){ .stagebars{grid-template-columns:max-content 1fr max-content} .stagebars .scnt{display:none} }
 </style>
 </head>
@@ -1689,7 +1741,7 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
 </div>
 <script>
 const RAW = __RAW__;
-RAW.oe = RAW.oe || []; RAW.dates = RAW.dates || {};
+RAW.oe = RAW.oe || []; RAW.ms = RAW.ms || []; RAW.dates = RAW.dates || {};
 
 const STAGES = ["Pending Start","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready for Production","Production"];
@@ -1970,22 +2022,63 @@ function renderStageDur(){
   }
   const max = Math.max(...drows.map(r=>r[1]), 1);
   const slowest = drows.length ? drows.slice().sort((a,b)=>b[1]-a[1])[0] : null;
+  // migration testing split (needs a loaded MigrationSummary): for migration
+  // connections only, Internal = testing start -> migration testing date, Carrier
+  // = migration testing date -> production. Shown as an expandable under Testing.
+  const TEST_I = STAGES.indexOf('Testing');
+  const msMap = {};
+  for(const m of (RAW.ms||[])){
+    if(m.ConnectivityRequestID!=null && m.MigrationTestingDate)
+      msMap[m.ConnectivityRequestID] = toISO(m.MigrationTestingDate);
+  }
+  const internalRaw = [], carrierRaw = [];
+  for(const r of sel){
+    if(r.mig==='No' || r.mig==='—') continue;   // migration connections only
+    const mtd = msMap[r.id];
+    if(!mtd) continue;
+    const tStart = r.sd[TEST_I];
+    const prod = r.sd[TEST_I+1] || r.sd[TEST_I+2];   // ready-for-production, else production
+    if(tStart){ const d = daysBetween(tStart, new Date(mtd+'T00:00:00Z'));
+      if(d>=0) internalRaw.push({d, id:r.id, customer:r.customer, carrier:r.carrier, start:tStart, end:mtd}); }
+    if(prod){ const d = daysBetween(mtd, new Date(prod+'T00:00:00Z'));
+      if(d>=0) carrierRaw.push({d, id:r.id, customer:r.customer, carrier:r.carrier, start:mtd, end:prod}); }
+  }
+  const intSplit = splitDurOutliers(internalRaw), carSplit = splitDurOutliers(carrierRaw);
+  const avgKept = k => k.length ? k.reduce((a,x)=>a+x.d,0)/k.length : null;
+  const iAvg = avgKept(intSplit.kept), cAvg = avgKept(carSplit.kept);
+  const hasSplit = !!(intSplit.kept.length || carSplit.kept.length);
+  const msMax = Math.max(iAvg||0, cAvg||0, 1);
+  const msBar = (key, label, sub, avg, sp, color) => `<div class="msrow">
+      <span class="msname"><i style="background:${color}"></i><span class="mslbl">${label}<small>${sub}</small></span></span>
+      <div class="mstrack"><div class="msbar" style="width:${Math.max(2,(avg||0)/msMax*100)}%;background:${color}"></div></div>
+      <span class="msval">${avg!=null?(avg/7).toFixed(1)+' wk':'—'}</span>
+      <span class="mscnt">${sp.kept.length} migration${sp.kept.length===1?'':'s'}${sp.cut.length?` · <a class="outbtn" data-i="${key}" title="show / hide the removed migrations">${sp.cut.length} outlier${sp.cut.length===1?'':'s'} removed</a>`:''}</span>
+    </div>${sp.cut.length?`<div class="msouts" id="douts-${key}" style="display:none">
+      ${sp.cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} — ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
+    </div>`:''}`;
+  const msBlock = hasSplit ? `<div class="msplit" id="ms-split" style="display:none">
+    ${msBar('msint','Internal testing','testing start &rarr; migration testing date', iAvg, intSplit, 'var(--s4)')}
+    ${msBar('mscar','Carrier testing','migration testing date &rarr; production', cAvg, carSplit, 'var(--s6)')}
+  </div>` : '';
   $('#stagedur').innerHTML = drows.length ? `<div class="stagebars">
     ${drows.map(([i,avg,kept,cut])=>`<div class="srow">
       <span class="sname"><i style="background:${STAGE_COLORS[i]}"></i>${STAGES[i]}</span>
       <div class="strack"><div class="sbar" style="width:${Math.max(2,avg/max*100)}%;background:${STAGE_COLORS[i]}"></div></div>
       <span class="sval">${(avg/7).toFixed(1)} wk</span>
-      <span class="scnt">${kept.length} conn${kept.length>1?'s':''}${cut.length?` · <a class="outbtn" data-i="${i}" title="show / hide the removed connections">${cut.length} outlier${cut.length>1?'s':''} removed</a>`:''}</span>
+      <span class="scnt">${kept.length} conn${kept.length>1?'s':''}${cut.length?` · <a class="outbtn" data-i="${i}" title="show / hide the removed connections">${cut.length} outlier${cut.length>1?'s':''} removed</a>`:''}${i===TEST_I&&hasSplit?` · <a class="msbtn" title="internal vs carrier testing for migrations">migration split</a>`:''}</span>
     </div>${cut.length?`<div class="souts" id="douts-${i}" style="display:none">
       ${cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} — ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
-    </div>`:''}`).join('')}
+    </div>`:''}${i===TEST_I?msBlock:''}`).join('')}
   </div><div class="hnote">Average time from the start of each stage to the start of the next recorded one —
-    or to today for a stage a connection is still sitting in. Covers connections produced in ${curDurYear}${curDurYear===dataYear?' plus those currently in progress':''}${curDurType==='All'?'':` · ${esc(curDurType)}`}${curDurMig==='All'?'':` · ${esc(curDurMig)}`}.${slowest?` The longest stage is ${STAGES[slowest[0]]} at ${(slowest[1]/7).toFixed(1)} weeks.`:''}</div>`
+    or to today for a stage a connection is still sitting in. Covers connections produced in ${curDurYear}${curDurYear===dataYear?' plus those currently in progress':''}${curDurType==='All'?'':` · ${esc(curDurType)}`}${curDurMig==='All'?'':` · ${esc(curDurMig)}`}.${hasSplit?' Migrations also carry an internal/carrier testing split under the Testing stage.':''}${slowest?` The longest stage is ${STAGES[slowest[0]]} at ${(slowest[1]/7).toFixed(1)} weeks.`:''}</div>`
     : `<div class="empty">No connections with measurable stages in ${curDurYear}${curDurType==='All'?'':' for this request type'}.</div>`;
   document.querySelectorAll('#stagedur .outbtn').forEach(b=>{
     b.onclick = () => { const el = document.getElementById('douts-'+b.dataset.i);
       if(el) el.style.display = el.style.display==='none' ? '' : 'none'; };
   });
+  const mb = document.querySelector('#stagedur .msbtn');
+  if(mb) mb.onclick = () => { const el = document.getElementById('ms-split');
+    if(el) el.style.display = el.style.display==='none' ? '' : 'none'; };
 }
 
 // ---------- render ----------
@@ -2179,6 +2272,7 @@ async function restoreSaved(){
   if(saved && (!RAW.cr.length || saved.generated > RAW.generated)){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
+    if(saved.ms && saved.ms.length) RAW.ms = saved.ms;
     if(saved.dates) RAW.dates = saved.dates;
   }
 }
@@ -2210,21 +2304,26 @@ $('#files').onchange = async e => {
     const files = [...e.target.files];
     if(!files.length) return;
     msg.className=''; msg.textContent='Reading…';
-    let newCr=null, newAi=null, newOe=null, names=[];
+    let newCr=null, newAi=null, newOe=null, newMs=null, names=[];
     let crDate=null, aiDate=null, oeDate=null;
     for(const f of files){
       const wb = XLSX.read(await f.arrayBuffer());
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
       const cols = new Set(Object.keys(rows[0]||{}));
-      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); names.push(f.name+' (AI)'); }
-      else if(cols.has('OERequestID')){ newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); names.push(f.name+' (OE)'); }
-      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); names.push(f.name+' (CR)'); }
-      else names.push(f.name+' (unrecognized — skipped)');
+      const tags = [];
+      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); }
+      else if(cols.has('OERequestID')){ newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
+      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); }
+      // MigrationSummary — any sheet in the workbook carrying MigrationTestingDate
+      const mss = wb.SheetNames.find(n=>((XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1})[0])||[]).includes('MigrationTestingDate'));
+      if(mss){ newMs = XLSX.utils.sheet_to_json(wb.Sheets[mss], {defval:null}); tags.push('MigrationSummary'); }
+      names.push(f.name + (tags.length ? ` (${tags.join(', ')})` : ' (unrecognized — skipped)'));
     }
-    if(!newCr && !newAi && !newOe) throw new Error('No file matched the CR, AI or OE report format.');
+    if(!newCr && !newAi && !newOe && !newMs) throw new Error('No file matched the CR, AI, OE or MigrationSummary report format.');
     if(newCr){ RAW.cr = newCr; RAW.dates.cr = crDate; }
     if(newAi){ RAW.ai = newAi; RAW.dates.ai = aiDate; }
     if(newOe){ RAW.oe = newOe; RAW.dates.oe = oeDate; }
+    if(newMs){ RAW.ms = newMs; }
     RAW.generated = [RAW.dates.cr, RAW.dates.ai, RAW.dates.oe].filter(Boolean).sort().at(-1) || localDay(new Date());
     let saveWarn = '';
     try{ await dbSet(DB_KEY, JSON.stringify(RAW)); }

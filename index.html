@@ -274,7 +274,7 @@
   <textarea id="reptext" readonly></textarea>
 </div></div>
 <script>
-const RAW = {"generated": "2026-07-16", "dates": {"cr": "2026-07-16", "ai": "2026-07-16", "oe": "2026-07-16"}, "cr": [], "ai": [], "oe": []};
+const RAW = {"generated": "2026-07-16", "dates": {"cr": "2026-07-16", "ai": "2026-07-16", "oe": "2026-07-16"}, "cr": [], "ai": [], "oe": [], "ms": []};
 const STAGES = ["Pending Start","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready for Production","Production"];
 const STAGE_SHORT = ["Pending","Req. Gathering","Resource Asgmt",
@@ -639,6 +639,7 @@ const dbDel = key => idb().then(db => new Promise((res,rej)=>{
 // saved copy becomes the source of truth; otherwise drop the stale copy so a
 // fresh build that carries data starts clean
 RAW.oe = RAW.oe || [];
+RAW.ms = RAW.ms || [];
 RAW.dates = RAW.dates || {};
 async function restoreSaved(){
   let saved = null;
@@ -650,6 +651,7 @@ async function restoreSaved(){
   if(saved && (!RAW.cr.length || saved.generated > RAW.generated)){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
+    if(saved.ms && saved.ms.length) RAW.ms = saved.ms;
     if(saved.dates) RAW.dates = saved.dates;
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
   } else if(saved){
@@ -1319,7 +1321,7 @@ $('#files').onchange = async e => {
     const files = [...e.target.files];
     if(!files.length) return;
     msg.className=''; msg.textContent='Reading…';
-    let newCr=null, newAi=null, newOe=null, names=[];
+    let newCr=null, newAi=null, newOe=null, newMs=null, names=[];
     let crDate=null, aiDate=null, oeDate=null;
     for(const f of files){
       // no cellDates: date cells stay raw Excel serial numbers, which encode
@@ -1327,15 +1329,20 @@ $('#files').onchange = async e => {
       const wb = XLSX.read(await f.arrayBuffer());
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
       const cols = new Set(Object.keys(rows[0]||{}));
-      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); names.push(f.name+' (AI)'); }
-      else if(cols.has('OERequestID')){ newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); names.push(f.name+' (OE)'); }
-      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); names.push(f.name+' (CR)'); }
-      else names.push(f.name+' (unrecognized — skipped)');
+      const tags = [];
+      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); }
+      else if(cols.has('OERequestID')){ newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
+      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); }
+      // MigrationSummary — any sheet in the workbook carrying MigrationTestingDate
+      const mss = wb.SheetNames.find(n=>((XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1})[0])||[]).includes('MigrationTestingDate'));
+      if(mss){ newMs = XLSX.utils.sheet_to_json(wb.Sheets[mss], {defval:null}); tags.push('MigrationSummary'); }
+      names.push(f.name + (tags.length ? ` (${tags.join(', ')})` : ' (unrecognized — skipped)'));
     }
-    if(!newCr && !newAi && !newOe) throw new Error('No file matched the CR, AI or OE report format.');
+    if(!newCr && !newAi && !newOe && !newMs) throw new Error('No file matched the CR, AI, OE or MigrationSummary report format.');
     if(newCr){ RAW.cr = newCr; RAW.dates.cr = crDate; }
     if(newAi){ RAW.ai = newAi; RAW.dates.ai = aiDate; }
     if(newOe){ RAW.oe = newOe; RAW.dates.oe = oeDate; }
+    if(newMs){ RAW.ms = newMs; }
     // "today" for day-based calcs = the newest report date currently loaded
     RAW.generated = [RAW.dates.cr, RAW.dates.ai, RAW.dates.oe].filter(Boolean).sort().at(-1) || localDay(new Date());
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
