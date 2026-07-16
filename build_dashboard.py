@@ -779,8 +779,10 @@ const dbDel = key => idb().then(db => new Promise((res,rej)=>{
   tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
 }));
 
-// restore an upload saved in this browser only if it is strictly newer than
-// the embedded data; otherwise drop the stale copy so a fresh build starts clean
+// restore an upload saved in this browser when it is newer than the embedded
+// data, or whenever the file ships with no embedded data (an emptied file) so the
+// saved copy becomes the source of truth; otherwise drop the stale copy so a
+// fresh build that carries data starts clean
 RAW.oe = RAW.oe || [];
 RAW.dates = RAW.dates || {};
 async function restoreSaved(){
@@ -790,7 +792,7 @@ async function restoreSaved(){
     if(!saved) saved = JSON.parse(localStorage.getItem(DB_KEY)||'null');
     localStorage.removeItem(DB_KEY);
   }catch(e){}
-  if(saved && saved.generated > RAW.generated){
+  if(saved && (!RAW.cr.length || saved.generated > RAW.generated)){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.dates) RAW.dates = saved.dates;
@@ -1664,7 +1666,7 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
     <div id="gnote" class="hnote"></div>
   </div>
 
-  <h2>Pipeline stage duration <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; average time production connections spent in each stage &middot; produced in <select id="duryear" class="yearsel"></select> &middot; request type <select id="durtype" class="yearsel"></select> &middot; migration <select id="durmig" class="yearsel"></select> &middot; outlier filter <select id="durconf" class="yearsel"><option value="90">90%</option><option value="95">95%</option><option value="99">99%</option><option value="100">off</option></select> &middot; total: <b id="durcount" style="color:var(--ink)"></b></span></h2>
+  <h2>Pipeline stage duration <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; average time connections spent in each stage &middot; year <select id="duryear" class="yearsel"></select> &middot; request type <select id="durtype" class="yearsel"></select> &middot; migration <select id="durmig" class="yearsel"></select> &middot; outlier filter <select id="durconf" class="yearsel"><option value="90">90%</option><option value="95">95%</option><option value="99">99%</option><option value="100">off</option></select> &middot; total: <b id="durcount" style="color:var(--ink)"></b></span></h2>
   <div class="card" id="stagedur"></div>
 
   <h2>Cycle time trend <span class="note">&middot; average days from assignment to ready-for-production, by month produced</span></h2>
@@ -1864,14 +1866,15 @@ function teamStats(){
     cancelled, aiTotal: ai.length};
 }
 
-// ---------- pipeline stage duration (production connections, team-wide) ----------
-// Average calendar time each production connection spent in a stage: from the
-// start of the stage to the start of the next recorded stage. Only connections
-// that reached Ready For Production / Production are counted, grouped by the
-// year of that production date, and filterable by request type and migration
-// programme. Every stage from Pending Start onward is shown, and intervals
-// outside the chosen confidence band are dropped as outliers (same outlier rule
-// as the analyst page).
+// ---------- pipeline stage duration (production + in-progress, team-wide) ----------
+// Average calendar time each connection spent in a stage: from the start of the
+// stage to the start of the next recorded stage — or to today, when the
+// connection is still sitting in that stage (no later stage recorded yet).
+// Connections that reached Ready For Production / Production are grouped by the
+// year of that production date; in-progress connections (active status, no
+// production date) are counted in the current data year. Filterable by request
+// type and migration; every stage from Pending Start onward is shown; intervals
+// outside the chosen confidence band are dropped as outliers (analyst-page rule).
 const AVG_FIRST_STAGE = 0;   // include every stage from Pending Start onward
 const DUR_Z = {90:1.645, 95:1.96, 99:2.576};
 let curDurYear = null, curDurType = 'All', curDurMig = 'All', curDurConf = 99;
@@ -1889,19 +1892,21 @@ function splitDurOutliers(list){
 }
 function renderStageDur(){
   const RFP_I = STAGE_COLS.indexOf('Ready For Production');
+  const dataYear = String(RAW.generated).slice(0,4);
+  const today = new Date(RAW.generated+'T00:00:00Z');
   const rows = [];
   for(const r of (RAW.cr||[])){
     const sd = STAGE_COLS.map(col=>toISO(r[col]));
     sd[STAGE_COLS.indexOf('Testing')] = testingStart(r);
     const prodDate = sd[RFP_I] || sd[RFP_I+1];
-    if(!prodDate) continue;
-    rows.push({sd, year: prodDate.slice(0,4), type: txt(r['Request Type'])||'—',
-      mig: txt(r['Migration'])||'—', id: r['Request ID'],
+    const active = ACTIVE.has(txt(r['Status']));
+    if(!prodDate && !active) continue;   // only produced or in-progress connections
+    rows.push({sd, produced: !!prodDate, year: prodDate ? prodDate.slice(0,4) : dataYear,
+      type: txt(r['Request Type'])||'—', mig: txt(r['Migration'])||'—', id: r['Request ID'],
       customer: txt(r['Customer']), carrier: txt(r['Carrier'])});
   }
   // year dropdown — default to the data year when present, else the latest
   const years = [...new Set(rows.map(r=>r.year))].sort().reverse();
-  const dataYear = String(RAW.generated).slice(0,4);
   if(!years.includes(curDurYear)) curDurYear = years.includes(dataYear) ? dataYear : (years[0]||dataYear);
   const ysel = $('#duryear');
   ysel.innerHTML = (years.length?years:[curDurYear]).map(y=>`<option${y===curDurYear?' selected':''}>${y}</option>`).join('');
@@ -1928,20 +1933,27 @@ function renderStageDur(){
 
   const sel = inYear.filter(r=>(curDurType==='All' || r.type===curDurType)
     && (curDurMig==='All' || r.mig===curDurMig));
+  const nProd = sel.filter(r=>r.produced).length, nProg = sel.length - nProd;
   $('#durcount').textContent = `${sel.length} connection${sel.length===1?'':'s'} in ${curDurYear}`
+    + (nProg ? ` (${nProd} produced · ${nProg} in progress)` : '')
     + (curDurType==='All' ? '' : ` · ${curDurType}`)
     + (curDurMig==='All' ? '' : ` · ${curDurMig}`);
-  // completed interval per stage, kept as objects so removed outliers can be listed
+  // interval per stage, kept as objects so removed outliers can be listed. The
+  // end is the next recorded stage; if none and the connection is still in
+  // progress, the stage is still running, so today is used as the end.
   const ints = STAGES.map(()=>[]);
   for(const r of sel){
     for(let i=AVG_FIRST_STAGE;i<STAGES.length;i++){
       const start = r.sd[i];
       if(!start) continue;
-      let end = null;
-      for(let j=i+1;j<r.sd.length;j++) if(r.sd[j]){ end = r.sd[j]; break; }
-      if(!end) continue;
-      const d = daysBetween(start, new Date(end+'T00:00:00Z'));
-      if(d>=0) ints[i].push({d, id: r.id, customer: r.customer, carrier: r.carrier, start, end});
+      let endISO = null;
+      for(let j=i+1;j<r.sd.length;j++) if(r.sd[j]){ endISO = r.sd[j]; break; }
+      let end, endLabel;
+      if(endISO){ end = new Date(endISO+'T00:00:00Z'); endLabel = endISO; }
+      else if(!r.produced){ end = today; endLabel = RAW.generated; }  // still in this stage
+      else continue;   // produced connection's terminal stage has no duration
+      const d = daysBetween(start, end);
+      if(d>=0) ints[i].push({d, id: r.id, customer: r.customer, carrier: r.carrier, start, end: endLabel});
     }
   }
   // average of the kept intervals per stage, after trimming outliers
@@ -1961,9 +1973,9 @@ function renderStageDur(){
     </div>${cut.length?`<div class="souts" id="douts-${i}" style="display:none">
       ${cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} — ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
     </div>`:''}`).join('')}
-  </div><div class="hnote">Average time from the start of each stage to the start of the next recorded one,
-    over connections taken to production in ${curDurYear}${curDurType==='All'?'':` · ${esc(curDurType)}`}${curDurMig==='All'?'':` · ${esc(curDurMig)}`}.${slowest?` The longest stage is ${STAGES[slowest[0]]} at ${(slowest[1]/7).toFixed(1)} weeks.`:''}</div>`
-    : `<div class="empty">No production connections with measurable stages in ${curDurYear}${curDurType==='All'?'':' for this request type'}.</div>`;
+  </div><div class="hnote">Average time from the start of each stage to the start of the next recorded one —
+    or to today for a stage a connection is still sitting in. Covers connections produced in ${curDurYear}${curDurYear===dataYear?' plus those currently in progress':''}${curDurType==='All'?'':` · ${esc(curDurType)}`}${curDurMig==='All'?'':` · ${esc(curDurMig)}`}.${slowest?` The longest stage is ${STAGES[slowest[0]]} at ${(slowest[1]/7).toFixed(1)} weeks.`:''}</div>`
+    : `<div class="empty">No connections with measurable stages in ${curDurYear}${curDurType==='All'?'':' for this request type'}.</div>`;
   document.querySelectorAll('#stagedur .outbtn').forEach(b=>{
     b.onclick = () => { const el = document.getElementById('douts-'+b.dataset.i);
       if(el) el.style.display = el.style.display==='none' ? '' : 'none'; };
@@ -2156,7 +2168,9 @@ const dbSet = (key,val) => idb().then(db => new Promise((res,rej)=>{
 async function restoreSaved(){
   let saved = null;
   try{ const s = await dbGet(DB_KEY); if(s) saved = JSON.parse(s); }catch(e){}
-  if(saved && saved.generated > RAW.generated){
+  // use the saved upload when it is newer than the embedded data, or whenever the
+  // file ships empty (an emptied file) so the browser copy is the source of truth
+  if(saved && (!RAW.cr.length || saved.generated > RAW.generated)){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.dates) RAW.dates = saved.dates;

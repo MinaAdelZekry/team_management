@@ -634,8 +634,10 @@ const dbDel = key => idb().then(db => new Promise((res,rej)=>{
   tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
 }));
 
-// restore an upload saved in this browser only if it is strictly newer than
-// the embedded data; otherwise drop the stale copy so a fresh build starts clean
+// restore an upload saved in this browser when it is newer than the embedded
+// data, or whenever the file ships with no embedded data (an emptied file) so the
+// saved copy becomes the source of truth; otherwise drop the stale copy so a
+// fresh build that carries data starts clean
 RAW.oe = RAW.oe || [];
 RAW.dates = RAW.dates || {};
 async function restoreSaved(){
@@ -645,7 +647,7 @@ async function restoreSaved(){
     if(!saved) saved = JSON.parse(localStorage.getItem(DB_KEY)||'null');
     localStorage.removeItem(DB_KEY);
   }catch(e){}
-  if(saved && saved.generated > RAW.generated){
+  if(saved && (!RAW.cr.length || saved.generated > RAW.generated)){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.dates) RAW.dates = saved.dates;
