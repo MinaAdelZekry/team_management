@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team Overview</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#1b2733; --ink-soft:#5b6b7b; --paper:#f5f6f4; --card:#ffffff;
+    --line:#e2e6e1; --accent:#0f6f5c; --accent-soft:#e2f0ec;
+    --amber:#965900; --amber-bg:#fdf2df; --red:#b3261e; --red-bg:#fbe9e7;
+    --blue:#2b5d8a; --blue-bg:#e7eff6;
+    --head:#1b2733; --pop:#1b2733; --th-bg:#fafbf9; --bar:#c9d6d1;
+    --ring:rgba(27,39,51,.3); --chip-mute:#ececec; --chip-mute-ink:#555;
+    --mono:'SF Mono',Consolas,'Liberation Mono',monospace;
+    color-scheme:light;
+    --s0:#8fa3bd; --s1:#5f8fd4; --s2:#38619e; --s3:#008aa0;
+    --s4:#0f9682; --s5:#3f9d54; --s6:#b26a00; --s7:#00845f;
+  }
+  :root[data-theme="dark"]{
+    --ink:#e8edf2; --ink-soft:#9aa8b5; --paper:#12181f; --card:#1b232c;
+    --line:#2c3742; --accent:#3fb59a; --accent-soft:#173229;
+    --amber:#e0a24a; --amber-bg:#33270f; --red:#e57373; --red-bg:#3a1d1a;
+    --blue:#7aa7cf; --blue-bg:#1c2a38;
+    --head:#0d1319; --pop:#0d1319; --th-bg:#202a34; --bar:#3a4a45;
+    --ring:rgba(232,237,242,.35); --chip-mute:#2c3742; --chip-mute-ink:#b6c2cd;
+    color-scheme:dark;
+    --s0:#7b8ca6; --s1:#6b95d6; --s2:#4a6fae; --s3:#1897ad;
+    --s4:#1fa28e; --s5:#4fa960; --s6:#c08228; --s7:#2f9d85;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{font:15px/1.45 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+       background:var(--paper);color:var(--ink);padding-bottom:60px}
+  header{background:var(--head);color:#fff;padding:16px}
+  header .wrap{display:flex;justify-content:space-between;align-items:flex-start;gap:16px 24px;flex-wrap:wrap}
+  header h1{font-size:19px;font-weight:650;letter-spacing:.2px}
+  header .sub{color:#9fb0bf;margin-top:6px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+  header .sub .sublabel{font-size:12px;font-weight:600;letter-spacing:.5px;text-transform:uppercase}
+  header .sub #gen{display:flex;flex-wrap:wrap;gap:6px}
+  header .sub .dchip{font-size:11px;font-weight:650;font-family:var(--mono);
+        padding:2px 9px;border-radius:20px;white-space:nowrap}
+  header .sub .dchip b{font-weight:700}
+  header .sub .dchip.idle-ok{background:rgba(63,181,154,.15);color:#6fd0b6}
+  header .sub .dchip.idle-warn{background:rgba(224,162,74,.17);color:#e8bd77}
+  header .sub .dchip.idle-bad{background:rgba(229,115,115,.17);color:#f0a19d}
+  .hright{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .htop{display:flex;align-items:center;gap:12px}
+  .viewlink{color:#9fb0bf;font-size:12.5px;text-decoration:underline dotted;
+        text-underline-offset:2px;white-space:nowrap;display:inline-block;margin-top:6px;margin-right:12px}
+  .viewlink:hover{color:#fff}
+  .upload{display:flex;align-items:center;gap:8px}
+  .upload label{background:#2e4155;color:#dfe8f0;font-size:12.5px;font-weight:650;
+        padding:8px 14px;border-radius:8px;cursor:pointer;border:1px solid #45596e}
+  .upload label:hover{background:#3a5069}
+  #themebtn{font:inherit;font-size:15px;line-height:1;background:transparent;color:#9fb0bf;
+        border:1px solid #45596e;border-radius:8px;padding:8px 10px;cursor:pointer}
+  #themebtn:hover{background:#2e4155;color:#dfe8f0}
+  #upmsg{font-size:12px;font-family:var(--mono);max-width:360px;text-align:right}
+  #upmsg.ok{color:#8fd6b8} #upmsg.err{color:#ffb3ad}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 12px}
+  h2{font-size:14px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-soft);
+     margin:22px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  h2 .note{text-transform:none;letter-spacing:0;font-weight:400}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0 18px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi b{display:block;font-size:26px;font-weight:700}
+  .kpi span{font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.5px}
+  .kpi .kpi-sub{display:block;font-size:11px;color:var(--ink-soft);text-transform:none;letter-spacing:0;margin-top:3px}
+  .kpi.warn b{color:var(--amber)} .kpi.bad b{color:var(--red)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--ink-soft);margin-bottom:12px;flex-wrap:wrap}
+  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:-1px}
+  .gbars{display:flex;align-items:flex-end;gap:8px;height:150px;margin-bottom:24px}
+  .gcol{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative}
+  .gpair{display:flex;align-items:flex-end;justify-content:center;gap:2px;height:100%}
+  .gbar{width:11px;max-width:30%;border-radius:4px 4px 0 0;min-height:2px}
+  .gbar.in{background:var(--blue)} .gbar.out{background:var(--accent)} .gbar.cx{background:var(--bar)}
+  .glbl{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font-size:10px;
+        font-family:var(--mono);color:var(--ink-soft)}
+  .gval{font-size:10px;font-family:var(--mono);color:var(--ink-soft);text-align:center;margin-bottom:3px}
+  .hrows{display:grid;grid-template-columns:max-content 1fr max-content max-content;gap:9px 14px;align-items:center}
+  .hrows.w3{grid-template-columns:max-content 1fr max-content}
+  .hrow{display:contents}
+  .hname{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;white-space:nowrap}
+  .hname i{width:10px;height:10px;border-radius:3px;display:inline-block;flex:none}
+  .htrack{background:var(--paper);border-radius:6px;height:14px;overflow:hidden}
+  .hbar{height:100%;border-radius:6px;min-width:2px;background:var(--accent)}
+  .hval{font-family:var(--mono);font-size:12.5px;font-weight:700;text-align:right}
+  .hsub{font-family:var(--mono);font-size:11px;color:var(--ink-soft);text-align:right;white-space:nowrap}
+  .hnote{font-size:11px;color:var(--ink-soft);font-style:italic;margin-top:10px}
+  .risks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+  .risk{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .risk b{display:block;font-size:22px;font-weight:700}
+  .risk span{font-size:12px;color:var(--ink-soft)}
+  .risk.warn b{color:var(--amber)} .risk.bad b{color:var(--red)}
+  .risk .drill{margin-top:6px;font-size:11.5px;color:var(--blue);cursor:pointer;
+        text-decoration:underline dotted;text-underline-offset:2px}
+  .risk .drill:hover{color:var(--ink)}
+  .rlist{display:none;margin-top:8px;border-top:1px solid var(--line);padding-top:8px;
+        max-height:220px;overflow:auto;font-size:12px}
+  .rlist div{padding:3px 0;border-bottom:1px solid var(--line)}
+  .rlist div:last-child{border-bottom:none}
+  .empty{color:var(--ink-soft);font-style:italic;padding:14px}
+  a.lnk{color:inherit;text-decoration:underline dotted;text-underline-offset:2px}
+  a.lnk:hover{color:var(--blue);text-decoration:underline solid}
+  .dt{font-family:var(--mono);font-size:12.5px}
+  .yearsel{font:inherit;font-weight:700;font-family:var(--mono);font-size:13px;min-width:0;
+        padding:2px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);
+        color:var(--ink);letter-spacing:0;cursor:pointer}
+  .stagebars{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;
+        display:grid;grid-template-columns:max-content 1fr max-content max-content;gap:10px 14px;align-items:center}
+  .stagebars .srow{display:contents}
+  .stagebars .sname{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;white-space:nowrap}
+  .stagebars .sname i{width:10px;height:10px;border-radius:3px;display:inline-block;flex:none}
+  .stagebars .strack{background:var(--paper);border-radius:6px;height:14px;overflow:hidden}
+  .stagebars .sbar{height:100%;border-radius:6px;min-width:2px}
+  .stagebars .sval{font-family:var(--mono);font-size:12.5px;font-weight:700;text-align:right}
+  .stagebars .scnt{font-family:var(--mono);font-size:11px;color:var(--ink-soft);text-align:right}
+  .stagebars .scnt .outbtn{color:var(--amber);cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}
+  .stagebars .scnt .outbtn:hover{color:var(--red)}
+  .stagebars .souts{grid-column:1/-1;background:var(--paper);border:1px dashed var(--line);border-radius:8px;
+        padding:8px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:4px;margin:-2px 0 4px}
+  @media(max-width:600px){ .stagebars{grid-template-columns:max-content 1fr max-content} .stagebars .scnt{display:none} }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div class="hleft">
+    <h1>Team Overview</h1>
+    <div class="sub"><span class="sublabel">Data as of</span> <span id="gen"></span></div>
+    <a class="viewlink" href="index.html">Analyst view &rarr;</a>
+    <a class="viewlink" href="isolved.html">iSolved view &rarr;</a>
+  </div>
+  <div class="hright">
+    <div class="htop">
+      <button id="themebtn" aria-label="Switch light / dark mode" title="Switch light / dark mode">&#127769;</button>
+    </div>
+    <div class="upload">
+      <label for="files">&#8682; Update data (upload CR / AI / OE reports)</label>
+      <input id="files" type="file" accept=".xlsx,.xls" multiple style="display:none">
+    </div>
+    <div id="upmsg"></div>
+  </div>
+</div></header>
+<div class="wrap">
+  <div class="kpis" id="kpis"></div>
+
+  <h2>Intake vs output <span class="note">&middot; CRs created, taken to production, and cancelled each month</span></h2>
+  <div class="card">
+    <div class="legend">
+      <span><i style="background:var(--blue)"></i>Created</span>
+      <span><i style="background:var(--accent)"></i>Produced</span>
+      <span><i style="background:var(--bar)"></i>Cancelled</span>
+    </div>
+    <div class="gbars" id="gbars"></div>
+    <div id="gnote" class="hnote"></div>
+  </div>
+
+  <h2>Pipeline stage duration <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; average time production connections spent in each stage &middot; produced in <select id="duryear" class="yearsel"></select> &middot; request type <select id="durtype" class="yearsel"></select> &middot; migration <select id="durmig" class="yearsel"></select> &middot; outlier filter <select id="durconf" class="yearsel"><option value="90">90%</option><option value="95">95%</option><option value="99">99%</option><option value="100">off</option></select> &middot; total: <b id="durcount" style="color:var(--ink)"></b></span></h2>
+  <div class="card" id="stagedur"></div>
+
+  <h2>Cycle time trend <span class="note">&middot; average days from assignment to ready-for-production, by month produced</span></h2>
+  <div class="card">
+    <div class="gbars" id="cbars" style="height:120px"></div>
+    <div id="cnote" class="hnote"></div>
+  </div>
+
+  <h2>Pipeline <span class="note">&middot; where active connections sit, and how long they have been sitting there</span></h2>
+  <div class="card" id="pipeline"></div>
+
+  <h2>Aging of active work <span class="note">&middot; days since assignment</span></h2>
+  <div class="card" id="aging"></div>
+
+  <h2>Workload balance <span class="note">&middot; active connections and open action items per analyst</span></h2>
+  <div class="card" id="workload"></div>
+
+  <h2>Needs attention</h2>
+  <div class="risks" id="risks"></div>
+</div>
+<script>
+const RAW = {"generated": "2026-07-16", "dates": {"cr": "2026-07-16", "ai": "2026-07-16", "oe": "2026-07-16"}, "cr": [], "ai": [], "oe": []};
+RAW.oe = RAW.oe || []; RAW.dates = RAW.dates || {};
+
+const STAGES = ["Pending Start","Requirements Gathering","Resource Assignment",
+  "Dataset Validation","Mapping","Testing","Ready for Production","Production"];
+const STAGE_COLS = ["Created Date","Requirements Gathering","Resource Assignment",
+  "Dataset Validation","Mapping","Testing","Ready For Production","Production"];
+const OE_STAGES = ["Pending Start","Resource Assignment","Requirement Gathering",
+  "Waiting for OE Data","Sending OE File","Get Carrier Confirmation","Completed"];
+const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
+const STAGE_COLORS = Array.from({length:8}, (_,i)=>`var(--s${i})`);
+// an action item pending on one of these is waiting on someone outside the team
+const EXTERNAL = /carrier|client|partner|vendor/i;
+const $ = s => document.querySelector(s);
+const BASE = 'https://d24ep0r8pqsi0a.cloudfront.net';
+const crUrl = id => `${BASE}/ConnectivityRequests/ViewConnectivityRequest/${id}`;
+
+// ---------- helpers (same rules as the analyst / iSolved pages) ----------
+const localDay = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+function toISO(v){
+  if(v==null || v==='') return null;
+  if(v instanceof Date && !isNaN(v)) return localDay(v);
+  if(typeof v==='number'){ const d = new Date(Math.round((v-25569)*86400*1000));
+    return isNaN(d)?null:d.toISOString().slice(0,10); }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})($|[T ])/);
+  if(m){ if(m[4]){ const d = new Date(s); if(!isNaN(d)) return localDay(d); } return m[1]+'-'+m[2]+'-'+m[3]; }
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m) return m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+  const d = new Date(s);
+  return isNaN(d)?null:localDay(d);
+}
+const txt = v => (v==null ? '' : String(v).trim());
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const daysBetween = (iso, today) => Math.floor((today - new Date(iso+'T00:00:00Z'))/86400000);
+const WEEKEND = new Set([5,6]);
+function workDaysBetween(iso, today){
+  const start = new Date(iso+'T00:00:00Z');
+  const days = Math.floor((today - start)/86400000);
+  if(days <= 0) return 0;
+  const weeks = Math.floor(days/7);
+  let wd = weeks*5, dow = start.getUTCDay();
+  for(let k = days - weeks*7; k > 0; k--){ dow = (dow+1)%7; if(!WEEKEND.has(dow)) wd++; }
+  return wd;
+}
+const stageIdx = s => { let t = String(s).toLowerCase();
+  if(t==='obtain customer dataset') t = 'dataset validation';
+  const i = STAGES.findIndex(x=>x.toLowerCase()===t); return i<0?0:i; };
+const idleCls = n => n==null?'idle-ok':(n>=10?'idle-bad':(n>=4?'idle-warn':'idle-ok'));
+const pct = (a,b) => b? Math.round(a/b*100) : 0;
+function quantile(arr, q){
+  if(!arr.length) return 0;
+  const s = [...arr].sort((x,y)=>x-y);
+  const pos = (s.length-1)*q, base = Math.floor(pos), rest = pos-base;
+  return Math.round(s[base+1]!==undefined ? s[base]+rest*(s[base+1]-s[base]) : s[base]);
+}
+const mean = a => a.length ? Math.round(a.reduce((s,x)=>s+x,0)/a.length) : 0;
+
+// Testing starts at the First Test File date; but if that date is more than
+// FTF_MAX_LEAD days before the Testing-stage date, it's treated as a stale /
+// wrong entry and the Testing-stage date is used instead (same rule as the
+// analyst page)
+const FTF_MAX_LEAD = 30;
+function testingStart(r){
+  const ftf = toISO(r['First Test File']);
+  const tst = toISO(r['Testing']);
+  if(!ftf) return tst;
+  if(tst && daysBetween(ftf, new Date(tst+'T00:00:00Z')) > FTF_MAX_LEAD) return tst;
+  return ftf;
+}
+
+// ---------- aggregate the three reports into team-level numbers ----------
+function teamStats(){
+  const cr = RAW.cr||[], ai = RAW.ai||[], oe = RAW.oe||[];
+  const asOf = RAW.dates.cr || RAW.generated;
+  const today = new Date(asOf+'T00:00:00Z');
+  const aiToday = new Date((RAW.dates.ai || RAW.generated)+'T00:00:00Z');
+
+  const active = cr.filter(r=>ACTIVE.has(txt(r['Status'])));
+  const unassigned = active.filter(r=>!txt(r['Technical Contact']));
+  const stalled = active.filter(r=>['Blocked','On Hold'].includes(txt(r['Status'])));
+  const analysts = [...new Set(active.map(r=>txt(r['Technical Contact'])).filter(Boolean))];
+
+  // ---- intake / output / cancellation by month, plus cycle times ----
+  const prod = [], created = [], cancelled = [], cycles = [];
+  for(const r of cr){
+    const p = toISO(r['Ready For Production']) || toISO(r['Production']);
+    const a = toISO(r['Assignment Date']);
+    const c = toISO(r['Created Date']);
+    const isCanc = txt(r['Status'])==='Cancelled';
+    if(c){ created.push(c.slice(0,7)); if(isCanc) cancelled.push({m:c.slice(0,7), assigned:!!a}); }
+    if(p){
+      prod.push({m:p.slice(0,7), tc:txt(r['Technical Contact'])});
+      if(a){ const d = daysBetween(a, new Date(p+'T00:00:00Z'));
+        if(d>=0 && d<2000) cycles.push({d, m:p.slice(0,7)}); }
+    }
+  }
+  const months = [...new Set([...created, ...prod.map(p=>p.m)])].sort();
+  const win = months.slice(-12);
+  const series = win.map(m=>({m,
+    created: created.filter(x=>x===m).length,
+    produced: prod.filter(x=>x.m===m).length,
+    cancelled: cancelled.filter(x=>x.m===m).length}));
+
+  // cycle time: average per month + the p90 tail the average hides
+  const cycWin = cycles.filter(c=>win.includes(c.m));
+  const cycTrend = win.map(m=>{ const v = cycles.filter(c=>c.m===m).map(c=>c.d);
+    return {m, avg: mean(v), n: v.length}; }).filter(x=>x.n);
+  const cycAll = cycWin.map(c=>c.d);
+
+  // ---- aging of active work (survivorship-free view of the same question) ----
+  const ages = active.map(r=>{ const a = toISO(r['Assignment Date']);
+    return a ? {r, d: daysBetween(a, today)} : null; }).filter(Boolean);
+  const ageVals = ages.map(x=>x.d);
+  const aged90 = ages.filter(x=>x.d>90), aged180 = ages.filter(x=>x.d>180);
+  const BUCKETS = [['0-30',0,30],['31-60',31,60],['61-90',61,90],['91-180',91,180],['180+',181,1e9]];
+  const buckets = BUCKETS.map(([label,lo,hi])=>({label, n: ages.filter(x=>x.d>=lo&&x.d<=hi).length}));
+
+  // ---- how long active work has sat in its CURRENT stage ----
+  const inStage = STAGES.map(()=>[]);
+  for(const r of active){
+    const ds = STAGE_COLS.map(c=>toISO(r[c])).filter(Boolean).sort();
+    const since = ds.length ? ds.at(-1) : null;
+    if(since) inStage[stageIdx(txt(r['Stage']))].push(daysBetween(since, today));
+  }
+  const stageCounts = STAGES.map((_,i)=>active.filter(r=>stageIdx(txt(r['Stage']))===i).length);
+  const stageAvg = inStage.map(v=>v.length?mean(v):null);
+
+  // ---- action items: staleness, who holds them, who blocks us ----
+  const aiRows = ai.map(r=>{
+    const bot = /^system\s*admin$/i.test(txt(r['LastCommentOwner']));
+    const eff = (bot?null:toISO(r['LastCommentDate'])) || toISO(r['StartDate']);
+    return {r, on: txt(r['CurrentlyPendingOn']), carrier: txt(r['CarrierName']),
+      d: eff? daysBetween(eff, aiToday) : null};
+  });
+  const stale90 = aiRows.filter(x=>x.d!=null && x.d>90);
+  const ext = aiRows.filter(x=>EXTERNAL.test(x.on));
+  const internal = aiRows.filter(x=>x.on && !EXTERNAL.test(x.on));
+  const byCarrier = {};
+  ext.forEach(x=>{ if(x.carrier) byCarrier[x.carrier] = (byCarrier[x.carrier]||0)+1; });
+  const holders = {};
+  internal.forEach(x=>{ holders[x.on] = (holders[x.on]||0)+1; });
+  const holdRank = Object.entries(holders).sort((a,b)=>b[1]-a[1]);
+
+  // ---- stalled testing: in Testing but no test file has ever been sent ----
+  const inTesting = active.filter(r=>stageIdx(txt(r['Stage']))===STAGES.indexOf('Testing'));
+  const stalledTest = inTesting.filter(r=>!toISO(r['First Test File']));
+
+  // ---- active CRs with no action item at all (no progress trail) ----
+  const aiCrIds = new Set(ai.map(r=>r['ConnectivityRequestID']).filter(v=>v!=null).map(String));
+  const noAI = active.filter(r=>!aiCrIds.has(String(r['Request ID'])));
+
+  // ---- migration programme split ----
+  const mig = {};
+  active.forEach(r=>{ const m = txt(r['Migration'])||'—'; mig[m] = (mig[m]||0)+1; });
+  const migActive = active.filter(r=>{ const m = txt(r['Migration']).toLowerCase();
+    return m && !['no','false','0','n','none','-'].includes(m); }).length;
+
+  // ---- OEs ----
+  const oeActive = oe.filter(r=>ACTIVE.has(txt(r['Status'])));
+  const oePast = oeActive.filter(r=>{ const p = toISO(r['PlanYearStartDate']); return p && p < asOf; });
+
+  // ---- workload per analyst: CRs + the action items pending on them ----
+  const load = analysts.map(a=>({a,
+    n: active.filter(r=>txt(r['Technical Contact'])===a).length,
+    ai: internal.filter(x=>x.on===a).length})).sort((x,y)=>y.n-x.n);
+
+  const thisMonth = win.at(-1), prevMonth = win.at(-2);
+  const out2026 = win.slice(-6).map(m=>prod.filter(p=>p.m===m).length);
+  const avgOut = out2026.length ? out2026.reduce((a,b)=>a+b,0)/out2026.length : 0;
+
+  return {asOf, cr, active, unassigned, stalled, analysts, series, win, load, stageCounts, stageAvg,
+    prod, ages, ageVals, aged90, aged180, buckets, stale90, ext, internal, byCarrier, holdRank,
+    stalledTest, inTesting, noAI, mig, migActive, oeActive, oePast, thisMonth, prevMonth,
+    cycMean: mean(cycAll), cycP90: quantile(cycAll, .9), cycTrend, avgOut,
+    cancelled, aiTotal: ai.length};
+}
+
+// ---------- pipeline stage duration (production connections, team-wide) ----------
+// Average calendar time each production connection spent in a stage: from the
+// start of the stage to the start of the next recorded stage. Only connections
+// that reached Ready For Production / Production are counted, grouped by the
+// year of that production date, and filterable by request type and migration
+// programme. Every stage from Pending Start onward is shown, and intervals
+// outside the chosen confidence band are dropped as outliers (same outlier rule
+// as the analyst page).
+const AVG_FIRST_STAGE = 0;   // include every stage from Pending Start onward
+const DUR_Z = {90:1.645, 95:1.96, 99:2.576};
+let curDurYear = null, curDurType = 'All', curDurMig = 'All', curDurConf = 99;
+// split stage intervals into kept / outliers using the chosen confidence band
+// (mean ± z·σ); 'off' keeps everything, samples under 3 are never trimmed
+function splitDurOutliers(list){
+  const z = DUR_Z[curDurConf];
+  if(!z || list.length<3) return {kept:list, cut:[]};
+  const m = list.reduce((a,x)=>a+x.d,0)/list.length;
+  const sd = Math.sqrt(list.reduce((a,x)=>a+(x.d-m)*(x.d-m),0)/list.length);
+  if(!sd) return {kept:list, cut:[]};
+  const kept = [], cut = [];
+  for(const x of list) (Math.abs(x.d-m)<=z*sd ? kept : cut).push(x);
+  return {kept, cut};
+}
+function renderStageDur(){
+  const RFP_I = STAGE_COLS.indexOf('Ready For Production');
+  const rows = [];
+  for(const r of (RAW.cr||[])){
+    const sd = STAGE_COLS.map(col=>toISO(r[col]));
+    sd[STAGE_COLS.indexOf('Testing')] = testingStart(r);
+    const prodDate = sd[RFP_I] || sd[RFP_I+1];
+    if(!prodDate) continue;
+    rows.push({sd, year: prodDate.slice(0,4), type: txt(r['Request Type'])||'—',
+      mig: txt(r['Migration'])||'—', id: r['Request ID'],
+      customer: txt(r['Customer']), carrier: txt(r['Carrier'])});
+  }
+  // year dropdown — default to the data year when present, else the latest
+  const years = [...new Set(rows.map(r=>r.year))].sort().reverse();
+  const dataYear = String(RAW.generated).slice(0,4);
+  if(!years.includes(curDurYear)) curDurYear = years.includes(dataYear) ? dataYear : (years[0]||dataYear);
+  const ysel = $('#duryear');
+  ysel.innerHTML = (years.length?years:[curDurYear]).map(y=>`<option${y===curDurYear?' selected':''}>${y}</option>`).join('');
+  ysel.onchange = e => { curDurYear = e.target.value; renderStageDur(); };
+  // request-type dropdown — built from the request types produced that year
+  const inYear = rows.filter(r=>r.year===curDurYear);
+  const types = [...new Set(inYear.map(r=>r.type))].sort();
+  if(curDurType!=='All' && !types.includes(curDurType)) curDurType = 'All';
+  const tsel = $('#durtype');
+  tsel.innerHTML = ['All',...types].map(tp=>
+    `<option value="${esc(tp)}"${tp===curDurType?' selected':''}>${tp==='All'?'All types':esc(tp)}</option>`).join('');
+  tsel.onchange = e => { curDurType = e.target.value; renderStageDur(); };
+  // migration dropdown — built from the migration programmes produced that year
+  const migs = [...new Set(inYear.map(r=>r.mig))].sort();
+  if(curDurMig!=='All' && !migs.includes(curDurMig)) curDurMig = 'All';
+  const msel = $('#durmig');
+  msel.innerHTML = ['All',...migs].map(mg=>
+    `<option value="${esc(mg)}"${mg===curDurMig?' selected':''}>${mg==='All'?'All Connections':esc(mg)}</option>`).join('');
+  msel.onchange = e => { curDurMig = e.target.value; renderStageDur(); };
+  // outlier-filter dropdown
+  const csel = $('#durconf');
+  csel.value = String(curDurConf);
+  csel.onchange = e => { curDurConf = +e.target.value; renderStageDur(); };
+
+  const sel = inYear.filter(r=>(curDurType==='All' || r.type===curDurType)
+    && (curDurMig==='All' || r.mig===curDurMig));
+  $('#durcount').textContent = `${sel.length} connection${sel.length===1?'':'s'} in ${curDurYear}`
+    + (curDurType==='All' ? '' : ` · ${curDurType}`)
+    + (curDurMig==='All' ? '' : ` · ${curDurMig}`);
+  // completed interval per stage, kept as objects so removed outliers can be listed
+  const ints = STAGES.map(()=>[]);
+  for(const r of sel){
+    for(let i=AVG_FIRST_STAGE;i<STAGES.length;i++){
+      const start = r.sd[i];
+      if(!start) continue;
+      let end = null;
+      for(let j=i+1;j<r.sd.length;j++) if(r.sd[j]){ end = r.sd[j]; break; }
+      if(!end) continue;
+      const d = daysBetween(start, new Date(end+'T00:00:00Z'));
+      if(d>=0) ints[i].push({d, id: r.id, customer: r.customer, carrier: r.carrier, start, end});
+    }
+  }
+  // average of the kept intervals per stage, after trimming outliers
+  const drows = [];
+  for(let i=AVG_FIRST_STAGE;i<STAGES.length;i++){
+    const {kept, cut} = splitDurOutliers(ints[i]);
+    if(kept.length) drows.push([i, kept.reduce((a,x)=>a+x.d,0)/kept.length, kept, cut]);
+  }
+  const max = Math.max(...drows.map(r=>r[1]), 1);
+  const slowest = drows.length ? drows.slice().sort((a,b)=>b[1]-a[1])[0] : null;
+  $('#stagedur').innerHTML = drows.length ? `<div class="stagebars">
+    ${drows.map(([i,avg,kept,cut])=>`<div class="srow">
+      <span class="sname"><i style="background:${STAGE_COLORS[i]}"></i>${STAGES[i]}</span>
+      <div class="strack"><div class="sbar" style="width:${Math.max(2,avg/max*100)}%;background:${STAGE_COLORS[i]}"></div></div>
+      <span class="sval">${(avg/7).toFixed(1)} wk</span>
+      <span class="scnt">${kept.length} conn${kept.length>1?'s':''}${cut.length?` · <a class="outbtn" data-i="${i}" title="show / hide the removed connections">${cut.length} outlier${cut.length>1?'s':''} removed</a>`:''}</span>
+    </div>${cut.length?`<div class="souts" id="douts-${i}" style="display:none">
+      ${cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} — ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
+    </div>`:''}`).join('')}
+  </div><div class="hnote">Average time from the start of each stage to the start of the next recorded one,
+    over connections taken to production in ${curDurYear}${curDurType==='All'?'':` · ${esc(curDurType)}`}${curDurMig==='All'?'':` · ${esc(curDurMig)}`}.${slowest?` The longest stage is ${STAGES[slowest[0]]} at ${(slowest[1]/7).toFixed(1)} weeks.`:''}</div>`
+    : `<div class="empty">No production connections with measurable stages in ${curDurYear}${curDurType==='All'?'':' for this request type'}.</div>`;
+  document.querySelectorAll('#stagedur .outbtn').forEach(b=>{
+    b.onclick = () => { const el = document.getElementById('douts-'+b.dataset.i);
+      if(el) el.style.display = el.style.display==='none' ? '' : 'none'; };
+  });
+}
+
+// ---------- render ----------
+function render(){
+  const t = teamStats();
+  $('#gen').innerHTML = dateChips();
+
+  const nowProd = t.prod.filter(p=>p.m===t.thisMonth).length;
+  const prevProd = t.prod.filter(p=>p.m===t.prevMonth).length;
+  const delta = prevProd ? Math.round((nowProd-prevProd)/prevProd*100) : null;
+  const loads = t.load.map(l=>l.n);
+  const cancTotal = t.cr.filter(r=>txt(r['Status'])==='Cancelled').length;
+  const cancRate = pct(cancTotal, t.cr.length);
+  const cancRecent = t.cancelled.filter(c=>t.win.includes(c.m)).length;
+  const createdWin = t.series.reduce((a,s)=>a+s.created,0);
+  const clear = t.avgOut ? (t.active.length/t.avgOut).toFixed(1) : '—';
+
+  $('#kpis').innerHTML = [
+    [t.active.length,'Active connections', `${t.analysts.length} analysts · average ${mean(loads)} each`, ''],
+    [nowProd,`Produced ${t.thisMonth||''}`, delta==null?'':`${delta>=0?'+':''}${delta}% vs ${t.prevMonth}`, ''],
+    [t.cycMean+'d','Average cycle time', `p90 ${t.cycP90}d — the tail the average hides`, ''],
+    [clear+' mo','To clear backlog', `at ~${Math.round(t.avgOut)}/month, no new intake`, ''],
+    [t.unassigned.length,'Unassigned', 'active CRs with no analyst', t.unassigned.length?'warn':''],
+    [t.aged90.length,'Aging > 90d', `${t.aged180.length} over 180d`, t.aged90.length?'bad':''],
+    [cancRate+'%','Cancelled', `${cancRecent} of ${createdWin} recent CRs already cancelled`, cancRate>=40?'warn':''],
+    [t.oeActive.length,'Active OEs', `${t.oePast.length} past plan-year start`, t.oePast.length?'warn':''],
+  ].map(([v,l,d,cls])=>`<div class="kpi ${cls}"><b>${v}</b><span>${l}</span>${d?`<span class="kpi-sub">${d}</span>`:''}</div>`).join('');
+
+  // --- intake vs output vs cancelled (grouped bars, one shared axis) ---
+  const max = Math.max(1, ...t.series.flatMap(s=>[s.created,s.produced,s.cancelled]));
+  $('#gbars').innerHTML = t.series.map(s=>`
+    <div class="gcol">
+      <div class="gpair">
+        <div class="gbar in" style="height:${s.created/max*100}%" title="${s.m}: ${s.created} created"></div>
+        <div class="gbar out" style="height:${s.produced/max*100}%" title="${s.m}: ${s.produced} produced"></div>
+        <div class="gbar cx" style="height:${s.cancelled/max*100}%" title="${s.m}: ${s.cancelled} cancelled"></div>
+      </div>
+      <div class="glbl">${s.m.slice(2).replace('-','/')}</div>
+    </div>`).join('');
+  const tc = createdWin, tp = t.series.reduce((a,s)=>a+s.produced,0);
+  $('#gnote').textContent = `Last ${t.series.length} months: ${tc} created vs ${tp} produced — `
+    + (tc>tp ? `backlog grew by ${tc-tp}` : tc<tp ? `backlog shrank by ${tp-tc}` : 'backlog flat')
+    + `. ${cancRecent} of those ${tc} have already been cancelled, so real demand is lower than intake suggests.`;
+
+  // --- cycle time trend (single series: one colour for every bar) ---
+  const cmax = Math.max(1, ...t.cycTrend.map(c=>c.avg));
+  $('#cbars').innerHTML = t.cycTrend.map(c=>`
+    <div class="gcol">
+      <div class="gval">${c.avg}</div>
+      <div class="gpair"><div class="gbar" style="width:60%;max-width:22px;background:var(--accent);height:${c.avg/cmax*100}%"
+        title="${c.m}: average ${c.avg}d over ${c.n} CRs"></div></div>
+      <div class="glbl">${c.m.slice(2).replace('-','/')}</div>
+    </div>`).join('');
+  // compare the last 3 months with the 3 before them — comparing first vs last
+  // month would let a single outlier month hide the real direction
+  const r3 = t.cycTrend.slice(-3), p3 = t.cycTrend.slice(-6,-3);
+  const rAvg = mean(r3.map(c=>c.avg)), pAvg = mean(p3.map(c=>c.avg));
+  $('#cnote').textContent = r3.length && p3.length && pAvg
+    ? `Last 3 months average ${rAvg}d vs the 3 before ${pAvg}d — `
+      + (rAvg>pAvg ? `slower by ${Math.round((rAvg-pAvg)/pAvg*100)}%`
+      : rAvg<pAvg ? `faster by ${Math.round((pAvg-rAvg)/pAvg*100)}%` : 'flat')
+      + `. Measured only on CRs that finished — work still stuck is not in this number.`
+    : '';
+
+  // --- pipeline: count + how long they have sat in that stage ---
+  const pmax = Math.max(1, ...t.stageCounts);
+  const prows = STAGES.map((s,i)=>[s,i,t.stageCounts[i]]).filter(([,,n])=>n);
+  $('#pipeline').innerHTML = prows.length ? `<div class="hrows">
+    ${prows.map(([s,i,n])=>`<div class="hrow">
+      <span class="hname"><i style="background:${STAGE_COLORS[i]}"></i>${s}</span>
+      <div class="htrack"><div class="hbar" style="width:${Math.max(2,n/pmax*100)}%;background:${STAGE_COLORS[i]}"
+        title="${n} active connections in ${s}"></div></div>
+      <span class="hval">${n} <small style="color:var(--ink-soft);font-weight:400">${pct(n,t.active.length)}%</small></span>
+      <span class="hsub">${t.stageAvg[i]!=null?`${t.stageAvg[i]}d in stage`:'—'}</span>
+    </div>`).join('')}
+  </div><div class="hnote">"In stage" = average days since the CR last moved. The biggest pile-up is
+    ${prows.sort((a,b)=>b[2]-a[2])[0][0]} with ${prows[0][2]} CRs.</div>` : '<div class="empty">No active connections.</div>';
+
+  // --- pipeline stage duration over production connections (year + type filtered) ---
+  renderStageDur();
+
+  // --- aging distribution (one series; the bad tail is emphasised) ---
+  const bmax = Math.max(1, ...t.buckets.map(b=>b.n));
+  const bcol = l => l==='180+' ? 'var(--red)' : l==='91-180' ? 'var(--amber)' : 'var(--bar)';
+  $('#aging').innerHTML = `<div class="hrows w3">
+    ${t.buckets.map(b=>`<div class="hrow">
+      <span class="hname">${b.label} days</span>
+      <div class="htrack"><div class="hbar" style="width:${Math.max(2,b.n/bmax*100)}%;background:${bcol(b.label)}"
+        title="${b.n} active CRs aged ${b.label} days"></div></div>
+      <span class="hval">${b.n}</span>
+    </div>`).join('')}
+  </div><div class="hnote">Average active CR is ${mean(t.ageVals)}d old · p90 ${quantile(t.ageVals,.9)}d · oldest
+    ${Math.max(0,...t.ageVals)}d. Compare with the ${t.cycMean}d average cycle time — the gap is work that has not finished.</div>`;
+
+  // --- workload: CR load + action items held ---
+  const avg = mean(loads), lmax = Math.max(1, ...loads);
+  const over = t.load.filter(l=>l.n>avg*1.5);
+  $('#workload').innerHTML = t.load.length ? `<div class="hrows">
+    ${t.load.map(l=>`<div class="hrow">
+      <span class="hname">${esc(l.a)}</span>
+      <div class="htrack"><div class="hbar" style="width:${Math.max(2,l.n/lmax*100)}%${l.n>avg*1.5?';background:var(--amber)':''}"
+        title="${esc(l.a)}: ${l.n} active CRs"></div></div>
+      <span class="hval">${l.n}</span>
+      <span class="hsub">${l.ai?`${l.ai} AIs`:'—'}</span>
+    </div>`).join('')}
+  </div><div class="hnote">Average ${avg} CRs per analyst · amber marks anyone over 1.5× the average
+    (${over.length}). "AIs" = open action items pending on them — a CR count alone understates real load.</div>`
+    : '<div class="empty">No analysts with active connections.</div>';
+
+  // --- needs attention ---
+  const now = new Date(t.asOf+'T00:00:00Z');
+  const ageOf = r => { const a = toISO(r['Assignment Date']); return a?daysBetween(a,now):0; };
+  const crLine = x => `<div><a class="lnk" href="${crUrl(x.r['Request ID'])}" target="_blank">#${x.r['Request ID']}</a>
+    ${esc(txt(x.r['Customer']))} — ${esc(txt(x.r['Carrier']))} <span class="dt">${x.d}d</span>
+    ${txt(x.r['Technical Contact'])?`· ${esc(txt(x.r['Technical Contact']))}`:'· <i>unassigned</i>'}</div>`;
+  const topCarriers = Object.entries(t.byCarrier).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const keyShare = t.holdRank.length ? pct(t.holdRank[0][1], t.internal.length) : 0;
+  const migList = Object.entries(t.mig).sort((a,b)=>b[1]-a[1]);
+
+  $('#risks').innerHTML = [
+    ['Unassigned active CRs', t.unassigned.length, t.unassigned.length?'warn':'',
+      t.unassigned.map(r=>({r,d:ageOf(r)})).sort((a,b)=>b.d-a.d).map(crLine).join('')],
+    ['Active CRs aging over 90 days', t.aged90.length, t.aged90.length?'bad':'',
+      t.aged90.slice().sort((a,b)=>b.d-a.d).map(crLine).join('')],
+    ['In Testing with no test file sent', t.stalledTest.length, t.stalledTest.length?'bad':'',
+      `<div><i>${pct(t.stalledTest.length, t.inTesting.length)}% of the ${t.inTesting.length} CRs in Testing — they look
+        like progress but nothing has been sent.</i></div>`
+      + t.stalledTest.map(r=>({r,d:ageOf(r)})).sort((a,b)=>b.d-a.d).map(crLine).join('')],
+    ['Blocked / on hold', t.stalled.length, t.stalled.length?'warn':'',
+      t.stalled.map(r=>({r,d:ageOf(r)})).sort((a,b)=>b.d-a.d).map(crLine).join('')],
+    ['Action items untouched over 90 days', t.stale90.length, t.stale90.length?'bad':'',
+      t.stale90.slice().sort((a,b)=>b.d-a.d).slice(0,200).map(x=>`<div>${esc(txt(x.r['ActionItemTitle'])||('AI #'+x.r['ActionItemID']))}
+        — ${esc(txt(x.r['ClientName']))} <span class="dt">${x.d}d</span> · on ${esc(x.on||'—')}</div>`).join('')],
+    ['OEs past their plan-year start', t.oePast.length, t.oePast.length?'bad':'',
+      t.oePast.map(r=>`<div>${esc(txt(r['ClientName']))} — ${esc(txt(r['CarrierName']))}
+        <span class="dt">${toISO(r['PlanYearStartDate'])}</span> · ${esc(txt(r['Stage']))}</div>`).join('')],
+    ['Action items waiting on carriers', t.ext.length, t.ext.length?'warn':'',
+      `<div><i>${pct(t.ext.length, t.aiTotal)}% of all open action items are outside the team's control.
+        Top carriers to escalate with:</i></div>`
+      + topCarriers.map(([k,v])=>`<div>${esc(k)} <span class="dt">${v}</span></div>`).join('')],
+    ['Open AIs held by one person', t.holdRank.length?t.holdRank[0][1]:0, keyShare>=25?'bad':'warn',
+      `<div><i>${esc(t.holdRank.length?t.holdRank[0][0]:'—')} holds ${keyShare}% of the ${t.internal.length}
+        action items pending on the team — key-person risk.</i></div>`
+      + t.holdRank.slice(0,10).map(([k,v])=>`<div>${esc(k)} <span class="dt">${v}</span></div>`).join('')],
+    ['Active CRs with no action item', t.noAI.length, '',
+      `<div><i>No open action item is attached, so there is no progress trail on these.</i></div>`
+      + t.noAI.map(r=>({r,d:ageOf(r)})).sort((a,b)=>b.d-a.d).slice(0,200).map(crLine).join('')],
+    ['Active migration CRs', t.migActive, '',
+      migList.map(([k,v])=>`<div>${esc(k)} <span class="dt">${v}</span></div>`).join('')],
+  ].map(([label,n,cls,list],i)=>`<div class="risk ${cls}">
+      <b>${n}</b><span>${label}</span>
+      ${list?`<div class="drill" data-r="${i}">show / hide</div><div class="rlist" id="rlist-${i}">${list}</div>`:''}
+    </div>`).join('');
+  document.querySelectorAll('.risk .drill').forEach(d=>{
+    d.onclick = () => { const el = document.getElementById('rlist-'+d.dataset.r);
+      if(el) el.style.display = el.style.display==='block' ? 'none' : 'block'; };
+  });
+}
+
+function dateChips(){
+  const d = RAW.dates || {};
+  const items = [['CR',d.cr],['AI',d.ai],['OE',d.oe]].filter(x=>x[1]);
+  if(!items.length) return esc(RAW.generated || '');
+  const nowMid = new Date(localDay(new Date())+'T00:00:00Z');
+  return items.map(([k,v])=>{
+    const age = workDaysBetween(v, nowMid);
+    return `<span class="dchip ${idleCls(age)}" title="${age} working day${age===1?'':'s'} old">${k} <b>${v}</b></span>`;
+  }).join('');
+}
+
+// ---------- cache (shared with the analyst / iSolved pages) ----------
+const DB_KEY = 'analystDash';
+const idb = () => new Promise((res,rej)=>{
+  const rq = indexedDB.open('analystDashDB',1);
+  rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+  rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+});
+const dbGet = key => idb().then(db => new Promise((res,rej)=>{
+  const rq = db.transaction('kv').objectStore('kv').get(key);
+  rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+}));
+const dbSet = (key,val) => idb().then(db => new Promise((res,rej)=>{
+  const tx = db.transaction('kv','readwrite'); tx.objectStore('kv').put(val,key);
+  tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+}));
+async function restoreSaved(){
+  let saved = null;
+  try{ const s = await dbGet(DB_KEY); if(s) saved = JSON.parse(s); }catch(e){}
+  if(saved && saved.generated > RAW.generated){
+    RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
+    if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
+    if(saved.dates) RAW.dates = saved.dates;
+  }
+}
+
+// ---------- theme ----------
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  $('#themebtn').textContent = t==='dark' ? '☀️' : '🌙';
+  try{ localStorage.setItem('dashTheme', t); }catch(e){}
+}
+let savedTheme = null;
+try{ savedTheme = localStorage.getItem('dashTheme'); }catch(e){}
+applyTheme(savedTheme==='dark' || savedTheme==='light' ? savedTheme
+  : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+$('#themebtn').onclick = () =>
+  applyTheme(document.documentElement.dataset.theme==='dark' ? 'light' : 'dark');
+
+// ---------- upload ----------
+function fileDate(f){
+  const m = String(f.name).match(/(20\d\d)[-_](\d\d)[-_](\d\d)/);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  if(f.lastModified) return localDay(new Date(f.lastModified));
+  return localDay(new Date());
+}
+$('#files').onchange = async e => {
+  const msg = $('#upmsg');
+  try{
+    if(typeof XLSX==='undefined') throw new Error('Excel parser unavailable — check internet connection.');
+    const files = [...e.target.files];
+    if(!files.length) return;
+    msg.className=''; msg.textContent='Reading…';
+    let newCr=null, newAi=null, newOe=null, names=[];
+    let crDate=null, aiDate=null, oeDate=null;
+    for(const f of files){
+      const wb = XLSX.read(await f.arrayBuffer());
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
+      const cols = new Set(Object.keys(rows[0]||{}));
+      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); names.push(f.name+' (AI)'); }
+      else if(cols.has('OERequestID')){ newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); names.push(f.name+' (OE)'); }
+      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); names.push(f.name+' (CR)'); }
+      else names.push(f.name+' (unrecognized — skipped)');
+    }
+    if(!newCr && !newAi && !newOe) throw new Error('No file matched the CR, AI or OE report format.');
+    if(newCr){ RAW.cr = newCr; RAW.dates.cr = crDate; }
+    if(newAi){ RAW.ai = newAi; RAW.dates.ai = aiDate; }
+    if(newOe){ RAW.oe = newOe; RAW.dates.oe = oeDate; }
+    RAW.generated = [RAW.dates.cr, RAW.dates.ai, RAW.dates.oe].filter(Boolean).sort().at(-1) || localDay(new Date());
+    let saveWarn = '';
+    try{ await dbSet(DB_KEY, JSON.stringify(RAW)); }
+    catch(e){ saveWarn = ` — warning: couldn't save for next visit (${e && e.message || e})`; }
+    render();
+    msg.className='ok';
+    msg.textContent = `Updated: ${names.join(', ')}` + saveWarn;
+  }catch(err){ msg.className='err'; msg.textContent='Update failed: '+err.message; }
+  e.target.value='';
+};
+
+restoreSaved().catch(()=>{}).then(()=>{
+  render();
+  if(!RAW.cr.length){
+    const m = $('#upmsg'); m.className = 'ok';
+    m.textContent = 'No data loaded yet — use "Update data" above to upload the CR, AI and OE reports.';
+  }
+});
+</script>
+</body>
+</html>

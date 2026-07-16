@@ -52,7 +52,7 @@
   .hright{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
   .htop{display:flex;align-items:center;gap:12px}
   .viewlink{color:#9fb0bf;font-size:12.5px;text-decoration:underline dotted;
-        text-underline-offset:2px;white-space:nowrap;display:inline-block;margin-top:6px}
+        text-underline-offset:2px;white-space:nowrap;display:inline-block;margin-top:6px;margin-right:12px}
   .viewlink:hover{color:#fff}
   .upload{display:flex;align-items:center;gap:8px}
   .upload label{background:#2e4155;color:#dfe8f0;font-size:12.5px;font-weight:650;
@@ -217,6 +217,7 @@
     <h1>Analyst Dashboard</h1>
     <div class="sub"><span class="sublabel">Data as of</span> <span id="gen"></span></div>
     <a class="viewlink" href="isolved.html">Switch to iSolved view &rarr;</a>
+    <a class="viewlink" href="team.html">Team overview &rarr;</a>
   </div>
   <div class="hright">
     <div class="htop">
@@ -273,7 +274,7 @@
   <textarea id="reptext" readonly></textarea>
 </div></div>
 <script>
-const RAW = {"generated": "2000-01-01", "cr": [], "ai": [], "oe": []};
+const RAW = {"generated": "2026-07-16", "dates": {"cr": "2026-07-16", "ai": "2026-07-16", "oe": "2026-07-16"}, "cr": [], "ai": [], "oe": []};
 const STAGES = ["Pending Start","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready for Production","Production"];
 const STAGE_SHORT = ["Pending","Req. Gathering","Resource Asgmt",
@@ -1090,7 +1091,7 @@ function oeReport(o){
   L.push(`Data ready: ${o.dataReady||'—'} · OE file submitted: ${o.submitted||'—'}`);
   L.push(`iSolved data changes: ${o.dataChanges||'—'} · Updated group structure: ${o.groupStructure||'—'}`);
   L.push(`Can resume production before PYSD: ${o.canResume||'—'} · Resumed production: ${o.resumed||'—'}`);
-  L.push(`${OTHER_ROLE_LABEL}: ${o.isolved||'—'} · assigned contact: ${o.tc||'—'}`);
+  L.push(`isolved contact: ${o.isolved||'—'} · Technical contact: ${o.tc||'—'}`);
   L.push(`Created: ${o.created||'—'}${o.createdBy?` by ${o.createdBy}`:''}`);
   return L;
 }
