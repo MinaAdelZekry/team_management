@@ -21,70 +21,241 @@ import os, sys, json, re
 import pandas as pd
 from datetime import datetime
 
-# --- Password gate -------------------------------------------------------
-# Client-side access gate injected into every generated page. The dashboards
-# are static, self-contained HTML (served from GitHub Pages, no backend), so
-# this deters casual access and hides the UI, but it is NOT server-strong:
-# the embedded data still lives in the file. Only the SHA-256 hash of the
-# password is stored here, never the plaintext. To change the password,
-# replace PW_HASH with the SHA-256 hex digest of the new password, e.g.
-#   python -c "import hashlib;print(hashlib.sha256('NEWPASS'.encode()).hexdigest())"
-PW_HASH = "7db6e89422d71f095b254c703b24e8b0a6ee57bb90735c205c109456a796dadc"
+# --- Password gate (client-side encryption) ------------------------------
+# The dashboards are static, self-contained HTML served from GitHub Pages
+# (no backend). A simple overlay is not enough: the content still sits in the
+# DOM and can be revealed by deleting the overlay in dev-tools. So instead
+# each generated page is ENCRYPTED at build time and shipped as ciphertext
+# inside a small unlock wrapper. The real HTML — and the embedded data — is
+# genuinely NOT in the file until the correct password decrypts it in the
+# browser. Deleting DOM nodes reveals nothing, because there is nothing to
+# reveal until decryption.
+#
+# Scheme (interoperable Python <-> browser Web Crypto, no third-party libs):
+#   key material = PBKDF2-HMAC-SHA256(password, salt, iterations) -> 64 bytes
+#                  split into a 32-byte cipher key + 32-byte MAC key
+#   keystream    = HMAC-SHA256(cipher_key, iv || counter) blocks (CTR mode)
+#   ciphertext   = plaintext XOR keystream
+#   tag          = HMAC-SHA256(mac_key, iv || ciphertext)   (encrypt-then-MAC)
+# A wrong password derives a different key, the tag check fails, and the page
+# refuses to decrypt.
+#
+# The password is NEVER stored in this repo. It is read at build time from the
+# DASH_PASSWORD environment variable, or from a local, git-ignored file
+# `dashboard_password.txt` next to this script. Only ciphertext (which is
+# useless without the password) is written into the committed HTML files.
+import hashlib, hmac, struct, base64
 
-AUTH_GATE = """
+PBKDF2_ITER = 200000
+
+
+def resolve_password():
+    pw = os.environ.get("DASH_PASSWORD")
+    if pw:
+        return pw
+    pwfile = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "dashboard_password.txt")
+    if os.path.exists(pwfile):
+        with open(pwfile, "r", encoding="utf-8") as f:
+            pw = f.read().strip()
+        if pw:
+            return pw
+    sys.exit("ERROR: no dashboard password set. Put it in the DASH_PASSWORD "
+             "environment variable, or in a git-ignored dashboard_password.txt "
+             "next to build_dashboard.py, then rebuild. (Refusing to build an "
+             "unprotected dashboard.)")
+
+
+def encrypt_payload(plaintext, password, iterations=PBKDF2_ITER):
+    pt = plaintext.encode("utf-8")
+    salt = os.urandom(16)
+    iv = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt,
+                             iterations, dklen=64)
+    key_enc, key_mac = dk[:32], dk[32:]
+    ks = bytearray()
+    i = 0
+    while len(ks) < len(pt):
+        ks += hmac.new(key_enc, iv + struct.pack(">I", i), hashlib.sha256).digest()
+        i += 1
+    ct = bytes(a ^ b for a, b in zip(pt, ks))
+    tag = hmac.new(key_mac, iv + ct, hashlib.sha256).digest()
+    b = lambda x: base64.b64encode(x).decode()
+    return {"v": 1, "salt": b(salt), "iv": b(iv), "iter": iterations,
+            "ct": b(ct), "tag": b(tag)}
+
+
+def wrap_encrypted(html, title, password):
+    payload = json.dumps(encrypt_payload(html, password), ensure_ascii=False)
+    return WRAPPER.replace("__TITLE__", title).replace("__PAYLOAD__", payload)
+
+
+# The unlock wrapper: the only thing shipped in cleartext. It prompts for the
+# password, decrypts the embedded payload with Web Crypto, and swaps the whole
+# document for the decrypted dashboard. The password is cached in sessionStorage
+# so navigating between the linked pages within a session only prompts once.
+WRAPPER = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__TITLE__</title>
+<style>
+  :root{
+    --pw-bg:#0e141b; --pw-bg2:#151d27; --pw-glow:rgba(63,181,154,.20);
+    --pw-card:#1b232c; --pw-card-line:rgba(255,255,255,.07);
+    --pw-ink:#eef2f6; --pw-muted:#94a3b1;
+    --pw-field:#0f161d; --pw-field-line:#2b3743; --pw-ring:rgba(63,181,154,.32);
+    --pw-accent:#3fb59a; --pw-accent2:#2f9d85; --pw-on-accent:#08211b; --pw-err:#f0736f;
+  }
+  :root[data-pw-theme="light"]{
+    --pw-bg:#e9ede8; --pw-bg2:#f6f8f4; --pw-glow:rgba(15,111,92,.15);
+    --pw-card:#ffffff; --pw-card-line:#e4e8e3;
+    --pw-ink:#17222e; --pw-muted:#5b6b7b;
+    --pw-field:#f6f8f5; --pw-field-line:#d8ded8; --pw-ring:rgba(15,143,118,.25);
+    --pw-accent:#0f8f76; --pw-accent2:#0f6f5c; --pw-on-accent:#ffffff; --pw-err:#c0392b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  #pw-gate{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;padding:24px;
+    font:15px/1.5 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:var(--pw-ink);
+    background:radial-gradient(1100px 560px at 50% -12%, var(--pw-glow), transparent 62%),
+               linear-gradient(180deg, var(--pw-bg2), var(--pw-bg));}
+  #pw-gate.show{display:flex}
+  .pw-card{width:100%;max-width:384px;background:var(--pw-card);border:1px solid var(--pw-card-line);
+    border-radius:18px;padding:38px 34px 30px;text-align:center;
+    box-shadow:0 1px 0 rgba(255,255,255,.05) inset, 0 30px 70px -22px rgba(0,0,0,.55);
+    animation:pw-in .45s cubic-bezier(.2,.7,.2,1) both}
+  @keyframes pw-in{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}
+  .pw-badge{width:66px;height:66px;margin:0 auto 20px;border-radius:20px;display:grid;place-items:center;color:#fff;
+    background:linear-gradient(145deg,var(--pw-accent),var(--pw-accent2));
+    box-shadow:0 14px 30px -10px var(--pw-accent), 0 0 0 1px rgba(255,255,255,.14) inset}
+  .pw-card h1{font-size:21px;font-weight:680;letter-spacing:.2px;margin:0 0 7px}
+  .pw-card p{font-size:13.5px;color:var(--pw-muted);margin:0 0 22px}
+  #pw-input{width:100%;padding:13px 15px;border:1px solid var(--pw-field-line);border-radius:11px;
+    background:var(--pw-field);color:var(--pw-ink);font-size:15px;outline:none;margin-bottom:14px;
+    transition:border-color .15s, box-shadow .15s}
+  #pw-input::placeholder{color:var(--pw-muted);opacity:.85}
+  #pw-input:focus{border-color:var(--pw-accent);box-shadow:0 0 0 3px var(--pw-ring)}
+  #pw-btn{position:relative;width:100%;padding:13px;border:0;border-radius:11px;cursor:pointer;
+    font-size:15px;font-weight:680;letter-spacing:.3px;color:var(--pw-on-accent);
+    background:linear-gradient(145deg,var(--pw-accent),var(--pw-accent2));
+    box-shadow:0 12px 26px -12px var(--pw-accent);transition:transform .08s, filter .15s, opacity .15s}
+  #pw-btn:hover:not(:disabled){filter:brightness(1.07)}
+  #pw-btn:active:not(:disabled){transform:translateY(1px)}
+  #pw-btn:disabled{cursor:default;opacity:.85}
+  #pw-btn.loading .pw-btn-label{visibility:hidden}
+  .pw-spin{position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;
+    border:2px solid currentColor;border-right-color:transparent;opacity:0;animation:pw-spin .7s linear infinite}
+  #pw-btn.loading .pw-spin{opacity:.9}
+  @keyframes pw-spin{to{transform:rotate(360deg)}}
+  #pw-error{color:var(--pw-err);font-size:13px;margin-top:14px;min-height:17px;font-weight:560}
+  .pw-card.shake{animation:pw-shake .4s}
+  @keyframes pw-shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(2px)}
+    30%,50%,70%{transform:translateX(-5px)}40%,60%{transform:translateX(5px)}}
+  @media(prefers-reduced-motion:reduce){.pw-card,.pw-spin{animation:none}}
+</style>
+</head>
+<body>
 <div id="pw-gate">
   <form id="pw-form" autocomplete="off">
     <div class="pw-card">
-      <div class="pw-lock">&#128274;</div>
+      <div class="pw-badge">
+        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="10.5" width="16" height="10.5" rx="2.3"></rect>
+          <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path>
+          <circle cx="12" cy="15.6" r="1.35" fill="currentColor" stroke="none"></circle>
+        </svg>
+      </div>
       <h1>Protected dashboard</h1>
-      <p>Enter the password to view this page.</p>
-      <input id="pw-input" type="password" placeholder="Password" autocomplete="current-password" autofocus>
-      <button type="submit">Unlock</button>
+      <p>Enter the password to continue.</p>
+      <input id="pw-input" type="password" placeholder="Password" autocomplete="current-password">
+      <button type="submit" id="pw-btn"><span class="pw-btn-label">Unlock</span><span class="pw-spin" aria-hidden="true"></span></button>
       <div id="pw-error" role="alert"></div>
     </div>
   </form>
 </div>
-<style>
-#pw-gate{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
-  background:#12181f;font:15px/1.45 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e8edf2;padding:20px}
-#pw-gate .pw-card{width:100%;max-width:360px;background:#1b232c;border:1px solid #2c3742;border-radius:14px;
-  padding:32px 28px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
-#pw-gate .pw-lock{font-size:34px;margin-bottom:10px}
-#pw-gate h1{font-size:19px;font-weight:650;margin-bottom:6px}
-#pw-gate p{font-size:13px;color:#9aa8b5;margin-bottom:20px}
-#pw-gate input{width:100%;padding:11px 13px;border:1px solid #2c3742;border-radius:9px;background:#12181f;
-  color:#e8edf2;font-size:15px;margin-bottom:12px;outline:none}
-#pw-gate input:focus{border-color:#3fb59a;box-shadow:0 0 0 3px rgba(63,181,154,.25)}
-#pw-gate button{width:100%;padding:11px;border:0;border-radius:9px;background:#3fb59a;color:#0d1319;
-  font-size:15px;font-weight:650;cursor:pointer}
-#pw-gate button:hover{background:#4fc4a9}
-#pw-gate #pw-error{color:#e57373;font-size:13px;margin-top:12px;min-height:16px}
-body.pw-locked{overflow:hidden}
-</style>
+<script id="pw-payload" type="application/json">__PAYLOAD__</script>
 <script>
 (function(){
-  var HASH="__PW_HASH__";
-  var KEY="dash-auth-ok";
-  var gate=document.getElementById('pw-gate');
-  function unlock(){ if(gate&&gate.parentNode){gate.parentNode.removeChild(gate);} document.body.classList.remove('pw-locked'); }
-  try{ if(sessionStorage.getItem(KEY)===HASH){ unlock(); return; } }catch(e){}
-  document.body.classList.add('pw-locked');
-  async function sha256(s){
-    var buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-    return Array.from(new Uint8Array(buf)).map(function(b){return b.toString(16).padStart(2,'0');}).join('');
+  var P = JSON.parse(document.getElementById('pw-payload').textContent);
+  var SKEY = 'dash-pw';
+  var gate = document.getElementById('pw-gate');
+  var input = document.getElementById('pw-input');
+  var errEl = document.getElementById('pw-error');
+  var btn = document.getElementById('pw-btn');
+
+  function b64(s){ return Uint8Array.from(atob(s), function(c){ return c.charCodeAt(0); }); }
+
+  async function decrypt(pw){
+    if(!(window.crypto && crypto.subtle)) throw new Error('nocrypto');
+    var salt=b64(P.salt), iv=b64(P.iv), ct=b64(P.ct), tag=b64(P.tag);
+    var enc = new TextEncoder();
+    var base = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits']);
+    var bits = new Uint8Array(await crypto.subtle.deriveBits(
+      {name:'PBKDF2', salt:salt, iterations:P.iter, hash:'SHA-256'}, base, 512));
+    var keyEnc = bits.slice(0,32), keyMac = bits.slice(32,64);
+    var macKey = await crypto.subtle.importKey('raw', keyMac, {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+    var macMsg = new Uint8Array(iv.length+ct.length); macMsg.set(iv,0); macMsg.set(ct,iv.length);
+    var calc = new Uint8Array(await crypto.subtle.sign('HMAC', macKey, macMsg));
+    if(calc.length!==tag.length || !calc.every(function(x,i){ return x===tag[i]; })) throw new Error('badpw');
+    var encKey = await crypto.subtle.importKey('raw', keyEnc, {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+    var n = Math.ceil(ct.length/32), jobs=[];
+    for(var i=0;i<n;i++){
+      var msg = new Uint8Array(iv.length+4); msg.set(iv,0);
+      new DataView(msg.buffer).setUint32(iv.length, i, false);
+      jobs.push(crypto.subtle.sign('HMAC', encKey, msg));
+    }
+    var blocks = await Promise.all(jobs);
+    var ks = new Uint8Array(n*32);
+    blocks.forEach(function(b,i){ ks.set(new Uint8Array(b), i*32); });
+    var out = new Uint8Array(ct.length);
+    for(var j=0;j<ct.length;j++) out[j] = ct[j] ^ ks[j];
+    return new TextDecoder('utf-8').decode(out);
   }
-  document.getElementById('pw-form').addEventListener('submit', async function(ev){
-    ev.preventDefault();
-    var inp=document.getElementById('pw-input'), err=document.getElementById('pw-error');
+
+  // match the gate to the user's saved dashboard theme (falls back to the OS setting)
+  try{
+    var t = localStorage.getItem('dashTheme');
+    if(t!=='dark' && t!=='light') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-pw-theme', t);
+  }catch(e){}
+
+  var card = document.querySelector('.pw-card');
+  function reveal(html){ document.open(); document.write(html); document.close(); }
+  function showPrompt(){ gate.classList.add('show'); input.focus(); }
+  function busy(on){ btn.disabled=on; btn.classList.toggle('loading', on); }
+
+  async function tryPw(pw, fromSaved){
     try{
-      var h=await sha256(inp.value);
-      if(h===HASH){ try{sessionStorage.setItem(KEY,HASH);}catch(e){} unlock(); }
-      else{ err.textContent='Incorrect password.'; inp.select(); }
-    }catch(ex){ err.textContent='This browser cannot verify the password (open the page over HTTPS).'; }
+      var html = await decrypt(pw);
+      try{ sessionStorage.setItem(SKEY, pw); }catch(e){}
+      reveal(html);
+    }catch(err){
+      try{ sessionStorage.removeItem(SKEY); }catch(e){}
+      busy(false);
+      if(fromSaved){ showPrompt(); return; }
+      errEl.textContent = (err && err.message==='badpw') ? 'Incorrect password.'
+        : 'Could not unlock — this page must be opened over HTTPS to decrypt.';
+      if(card){ card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake'); }
+      input.select();
+    }
+  }
+
+  document.getElementById('pw-form').addEventListener('submit', function(ev){
+    ev.preventDefault();
+    errEl.textContent=''; busy(true);
+    tryPw(input.value, false);
   });
+
+  var saved=null; try{ saved=sessionStorage.getItem(SKEY); }catch(e){}
+  if(saved){ tryPw(saved, true); } else { showPrompt(); }
 })();
 </script>
-""".replace("__PW_HASH__", PW_HASH)
+</body>
+</html>
+"""
 
 CR_KEEP = ["Request ID", "Carrier", "Customer", "Instance", "Request Type",
            "Migration", "IsMigration", "Is Migration", "Migration Request",
@@ -214,12 +385,10 @@ def main():
 
     raw_json = json.dumps(raw, ensure_ascii=False)
 
-    def gate(html):
-        # inject the password overlay immediately after <body> so it runs first
-        return html.replace("<body>", "<body>" + AUTH_GATE, 1)
+    password = resolve_password()
 
     def page(role, title, who, other_href, other_label):
-        return gate(TEMPLATE.replace("__RAW__", raw_json)
+        return (TEMPLATE.replace("__RAW__", raw_json)
                 .replace("__ROLE__", role)
                 .replace("__TITLE__", title)
                 .replace("__WHO__", who)
@@ -228,15 +397,21 @@ def main():
 
     iso_out = os.path.join(os.path.dirname(out), "isolved.html")
     with open(out, "w", encoding="utf-8") as f:
-        f.write(page("tc", "Analyst Dashboard", "analyst",
-                     os.path.basename(iso_out), "Switch to iSolved view"))
+        f.write(wrap_encrypted(
+            page("tc", "Analyst Dashboard", "analyst",
+                 os.path.basename(iso_out), "Switch to iSolved view"),
+            "Analyst Dashboard", password))
     with open(iso_out, "w", encoding="utf-8") as f:
-        f.write(page("isolved", "iSolved Dashboard", "iSolved contact",
-                     os.path.basename(out), "Switch to Analyst view"))
+        f.write(wrap_encrypted(
+            page("isolved", "iSolved Dashboard", "iSolved contact",
+                 os.path.basename(out), "Switch to Analyst view"),
+            "iSolved Dashboard", password))
     team_out = os.path.join(os.path.dirname(out), "team.html")
     with open(team_out, "w", encoding="utf-8") as f:
-        f.write(gate(TEAM_TEMPLATE.replace("__RAW__", raw_json)))
-    print(f"Wrote {out} + {iso_out} + {team_out}: {int(mask.sum())} CR rows, "
+        f.write(wrap_encrypted(
+            TEAM_TEMPLATE.replace("__RAW__", raw_json),
+            "Team Overview", password))
+    print(f"Wrote {out} + {iso_out} + {team_out} (encrypted): {int(mask.sum())} CR rows, "
           f"{len(ai)} AI rows, {len(oe_recs)} OE rows, {len(ms_recs)} MS rows embedded")
 
 
