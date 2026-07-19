@@ -21,6 +21,71 @@ import os, sys, json, re
 import pandas as pd
 from datetime import datetime
 
+# --- Password gate -------------------------------------------------------
+# Client-side access gate injected into every generated page. The dashboards
+# are static, self-contained HTML (served from GitHub Pages, no backend), so
+# this deters casual access and hides the UI, but it is NOT server-strong:
+# the embedded data still lives in the file. Only the SHA-256 hash of the
+# password is stored here, never the plaintext. To change the password,
+# replace PW_HASH with the SHA-256 hex digest of the new password, e.g.
+#   python -c "import hashlib;print(hashlib.sha256('NEWPASS'.encode()).hexdigest())"
+PW_HASH = "7db6e89422d71f095b254c703b24e8b0a6ee57bb90735c205c109456a796dadc"
+
+AUTH_GATE = """
+<div id="pw-gate">
+  <form id="pw-form" autocomplete="off">
+    <div class="pw-card">
+      <div class="pw-lock">&#128274;</div>
+      <h1>Protected dashboard</h1>
+      <p>Enter the password to view this page.</p>
+      <input id="pw-input" type="password" placeholder="Password" autocomplete="current-password" autofocus>
+      <button type="submit">Unlock</button>
+      <div id="pw-error" role="alert"></div>
+    </div>
+  </form>
+</div>
+<style>
+#pw-gate{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
+  background:#12181f;font:15px/1.45 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e8edf2;padding:20px}
+#pw-gate .pw-card{width:100%;max-width:360px;background:#1b232c;border:1px solid #2c3742;border-radius:14px;
+  padding:32px 28px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+#pw-gate .pw-lock{font-size:34px;margin-bottom:10px}
+#pw-gate h1{font-size:19px;font-weight:650;margin-bottom:6px}
+#pw-gate p{font-size:13px;color:#9aa8b5;margin-bottom:20px}
+#pw-gate input{width:100%;padding:11px 13px;border:1px solid #2c3742;border-radius:9px;background:#12181f;
+  color:#e8edf2;font-size:15px;margin-bottom:12px;outline:none}
+#pw-gate input:focus{border-color:#3fb59a;box-shadow:0 0 0 3px rgba(63,181,154,.25)}
+#pw-gate button{width:100%;padding:11px;border:0;border-radius:9px;background:#3fb59a;color:#0d1319;
+  font-size:15px;font-weight:650;cursor:pointer}
+#pw-gate button:hover{background:#4fc4a9}
+#pw-gate #pw-error{color:#e57373;font-size:13px;margin-top:12px;min-height:16px}
+body.pw-locked{overflow:hidden}
+</style>
+<script>
+(function(){
+  var HASH="__PW_HASH__";
+  var KEY="dash-auth-ok";
+  var gate=document.getElementById('pw-gate');
+  function unlock(){ if(gate&&gate.parentNode){gate.parentNode.removeChild(gate);} document.body.classList.remove('pw-locked'); }
+  try{ if(sessionStorage.getItem(KEY)===HASH){ unlock(); return; } }catch(e){}
+  document.body.classList.add('pw-locked');
+  async function sha256(s){
+    var buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+    return Array.from(new Uint8Array(buf)).map(function(b){return b.toString(16).padStart(2,'0');}).join('');
+  }
+  document.getElementById('pw-form').addEventListener('submit', async function(ev){
+    ev.preventDefault();
+    var inp=document.getElementById('pw-input'), err=document.getElementById('pw-error');
+    try{
+      var h=await sha256(inp.value);
+      if(h===HASH){ try{sessionStorage.setItem(KEY,HASH);}catch(e){} unlock(); }
+      else{ err.textContent='Incorrect password.'; inp.select(); }
+    }catch(ex){ err.textContent='This browser cannot verify the password (open the page over HTTPS).'; }
+  });
+})();
+</script>
+""".replace("__PW_HASH__", PW_HASH)
+
 CR_KEEP = ["Request ID", "Carrier", "Customer", "Instance", "Request Type",
            "Migration", "IsMigration", "Is Migration", "Migration Request",
            "Migration Type", "Migration Phase",
@@ -149,8 +214,12 @@ def main():
 
     raw_json = json.dumps(raw, ensure_ascii=False)
 
+    def gate(html):
+        # inject the password overlay immediately after <body> so it runs first
+        return html.replace("<body>", "<body>" + AUTH_GATE, 1)
+
     def page(role, title, who, other_href, other_label):
-        return (TEMPLATE.replace("__RAW__", raw_json)
+        return gate(TEMPLATE.replace("__RAW__", raw_json)
                 .replace("__ROLE__", role)
                 .replace("__TITLE__", title)
                 .replace("__WHO__", who)
@@ -166,7 +235,7 @@ def main():
                      os.path.basename(out), "Switch to Analyst view"))
     team_out = os.path.join(os.path.dirname(out), "team.html")
     with open(team_out, "w", encoding="utf-8") as f:
-        f.write(TEAM_TEMPLATE.replace("__RAW__", raw_json))
+        f.write(gate(TEAM_TEMPLATE.replace("__RAW__", raw_json)))
     print(f"Wrote {out} + {iso_out} + {team_out}: {int(mask.sum())} CR rows, "
           f"{len(ai)} AI rows, {len(oe_recs)} OE rows, {len(ms_recs)} MS rows embedded")
 
