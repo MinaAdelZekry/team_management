@@ -209,6 +209,71 @@
   a.lnk:hover{color:var(--blue);text-decoration:underline solid}
   .rankbtn{cursor:pointer}
   @media(max-width:600px){ .meta{grid-template-columns:1fr 1fr} th:nth-child(5),td:nth-child(5){display:none} }
+
+  /* ── UI/UX Pro Max visual upgrade layer ─────────────────────────────
+     Appended after the base rules: adds elevation, motion and focus
+     polish on top of the existing tokens without changing structure. */
+  :root{
+    --shadow-sm:0 1px 2px rgba(16,32,44,.05),0 1px 3px rgba(16,32,44,.05);
+    --shadow-md:0 2px 8px rgba(16,32,44,.07),0 10px 28px rgba(16,32,44,.07);
+    --shadow-lg:0 18px 44px rgba(16,32,44,.16);
+    --ease:cubic-bezier(.4,0,.2,1); --t:180ms;
+    --focus:0 0 0 3px color-mix(in srgb, var(--accent) 32%, transparent);
+    --head-grad:linear-gradient(165deg,#243543 0%,#161f29 100%);
+    --accent-grad:linear-gradient(90deg,var(--accent),#12a488);
+  }
+  :root[data-theme="dark"]{
+    --shadow-sm:0 1px 2px rgba(0,0,0,.45);
+    --shadow-md:0 2px 10px rgba(0,0,0,.5),0 14px 32px rgba(0,0,0,.4);
+    --shadow-lg:0 20px 48px rgba(0,0,0,.6);
+    --focus:0 0 0 3px color-mix(in srgb, var(--accent) 42%, transparent);
+    --head-grad:linear-gradient(165deg,#121b24 0%,#0a0f15 100%);
+    --accent-grad:linear-gradient(90deg,var(--accent),#54c9ae);
+  }
+  body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  /* header gains depth + a subtle gradient */
+  header{background:var(--head-grad);box-shadow:var(--shadow-md);
+    border-bottom:1px solid rgba(255,255,255,.06)}
+  /* section headings get an accent marker */
+  h2{position:relative;padding-left:13px}
+  h2::before{content:'';position:absolute;left:0;top:1px;bottom:9px;width:3px;
+    border-radius:3px;background:var(--accent-grad)}
+  /* KPI cards: elevation + accent strip + hover lift + tabular figures */
+  .kpi{position:relative;overflow:hidden;border-radius:12px;box-shadow:var(--shadow-sm);
+    transition:transform var(--t) var(--ease),box-shadow var(--t) var(--ease),border-color var(--t) var(--ease)}
+  .kpi::before{content:'';position:absolute;inset:0 0 auto 0;height:3px;background:var(--accent-grad)}
+  .kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);
+    border-color:color-mix(in srgb, var(--accent) 30%, var(--line))}
+  .kpi b{font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  /* connection / request cards: soft elevation that responds to hover */
+  .conn{box-shadow:var(--shadow-sm);
+    transition:box-shadow var(--t) var(--ease),border-color var(--t) var(--ease)}
+  .conn:hover{box-shadow:var(--shadow-md);
+    border-color:color-mix(in srgb, var(--accent) 22%, var(--line))}
+  /* data panels join the same elevation family */
+  .stagebars,.bars,table{box-shadow:var(--shadow-sm)}
+  /* table rows highlight on hover (header row uses th, so it stays put) */
+  td{transition:background-color var(--t) var(--ease)}
+  tr:hover>td{background:var(--accent-soft)}
+  /* interactive elements animate smoothly and show a clear focus ring */
+  button,select,input,.upload label,.copybtn,a.viewlink,summary{
+    transition:background-color var(--t) var(--ease),border-color var(--t) var(--ease),
+      box-shadow var(--t) var(--ease),color var(--t) var(--ease),transform var(--t) var(--ease)}
+  input:focus,select:focus{border-color:var(--accent)}
+  button:focus-visible,select:focus-visible,input:focus-visible,
+  a:focus-visible,summary:focus-visible,label:focus-visible{outline:none;box-shadow:var(--focus)}
+  .toolbar button:hover,.prodhead button:hover,.rephead button:hover{
+    border-color:color-mix(in srgb, var(--accent) 40%, var(--line))}
+  /* floating surfaces sit higher off the page */
+  .search .results,.repbox{box-shadow:var(--shadow-lg)}
+  /* refined scrollbars */
+  *::-webkit-scrollbar{width:11px;height:11px}
+  *::-webkit-scrollbar-thumb{background:var(--line);border-radius:10px;border:3px solid var(--card)}
+  *::-webkit-scrollbar-thumb:hover{background:var(--ink-soft)}
+  /* honour reduced-motion preferences */
+  @media(prefers-reduced-motion:reduce){
+    *{transition-duration:.01ms!important;animation-duration:.01ms!important;scroll-behavior:auto!important}
+  }
 </style>
 </head>
 <body>
