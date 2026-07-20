@@ -1039,7 +1039,6 @@ __NAV__
       <input id="files" type="file" accept=".xlsx,.xls" multiple style="display:none">
     </div>
     <div id="upmsg"></div>
-    <a id="resetdata" class="viewlink" href="#" title="Discard the copy saved in this browser and show the published data again">&#8635; Reset to published data</a>
   </div>
 </div></header>
 <div class="wrap">
@@ -1492,7 +1491,7 @@ async function restoreSaved(){
   // uploaded is what they see, and it survives reloads. No date comparison —
   // the embedded build data is only a starting point until someone uploads.
   // Consequence: once uploaded, a newly deployed build will NOT replace this
-  // copy; the reader must use "Reset to published data" to go back.
+  // copy. Clearing it needs the browser's own "clear site data".
   if(saved){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
@@ -2254,17 +2253,6 @@ $('#files').onchange = async e => {
   e.target.value='';
 };
 
-// an uploaded sheet is kept for good, so offer an explicit way back to the
-// data this page was published with
-const _reset = $('#resetdata');
-if(_reset) _reset.onclick = async ev => {
-  ev.preventDefault();
-  if(!confirm('Discard the report you uploaded in this browser and go back to the published data?')) return;
-  try{ await dbDel(DB_KEY); }catch(e){}
-  try{ localStorage.removeItem(DB_KEY); }catch(e){}
-  location.reload();
-};
-
 restoreSaved().catch(()=>{}).then(()=>{
   initSelectors(); render();
   if(!RAW.cr.length && !RAW.ai.length){
@@ -2502,7 +2490,6 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
       <input id="files" type="file" accept=".xlsx,.xls" multiple style="display:none">
     </div>
     <div id="upmsg"></div>
-    <a id="resetdata" class="viewlink" href="#" title="Discard the copy saved in this browser and show the published data again">&#8635; Reset to published data</a>
   </div>
 </div></header>
 <div class="wrap">
@@ -3078,7 +3065,7 @@ async function restoreSaved(){
   // uploaded is what they see, and it survives reloads. No date comparison —
   // the embedded build data is only a starting point until someone uploads.
   // Consequence: once uploaded, a newly deployed build will NOT replace this
-  // copy; the reader must use "Reset to published data" to go back.
+  // copy. Clearing it needs the browser's own "clear site data".
   if(saved){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
@@ -3188,17 +3175,6 @@ $('#files').onchange = async e => {
     msg.textContent = `Updated: ${names.join(', ')}` + saveWarn + colWarn;
   }catch(err){ msg.className='err'; msg.textContent='Update failed: '+err.message; }
   e.target.value='';
-};
-
-// an uploaded sheet is kept for good, so offer an explicit way back to the
-// data this page was published with
-const _reset = $('#resetdata');
-if(_reset) _reset.onclick = async ev => {
-  ev.preventDefault();
-  if(!confirm('Discard the report you uploaded in this browser and go back to the published data?')) return;
-  try{ await dbDel(DB_KEY); }catch(e){}
-  try{ localStorage.removeItem(DB_KEY); }catch(e){}
-  location.reload();
 };
 
 restoreSaved().catch(()=>{}).then(()=>{
