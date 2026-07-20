@@ -1474,7 +1474,11 @@ async function restoreSaved(){
     if(!saved) saved = JSON.parse(localStorage.getItem(DB_KEY)||'null');
     localStorage.removeItem(DB_KEY);
   }catch(e){}
-  if(saved && (!RAW.cr.length || saved.generated > RAW.generated)){
+  // Prefer the browser copy whenever it is at least as new as the embedded
+  // build. It must be >=, not >: the pages now ship WITH data, so a same-day
+  // upload (the normal case) would otherwise be discarded and deleted here.
+  // Only a strictly newer deployed build supersedes a local upload.
+  if(saved && (!RAW.cr.length || saved.generated >= RAW.generated)){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.ms && saved.ms.length) RAW.ms = saved.ms;
@@ -3041,7 +3045,11 @@ async function restoreSaved(){
   try{ const s = await dbGet(DB_KEY); if(s) saved = JSON.parse(s); }catch(e){}
   // use the saved upload when it is newer than the embedded data, or whenever the
   // file ships empty (an emptied file) so the browser copy is the source of truth
-  if(saved && (!RAW.cr.length || saved.generated > RAW.generated)){
+  // Prefer the browser copy whenever it is at least as new as the embedded
+  // build. It must be >=, not >: the pages now ship WITH data, so a same-day
+  // upload (the normal case) would otherwise be discarded and deleted here.
+  // Only a strictly newer deployed build supersedes a local upload.
+  if(saved && (!RAW.cr.length || saved.generated >= RAW.generated)){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.ms && saved.ms.length) RAW.ms = saved.ms;
