@@ -512,13 +512,17 @@ def main():
 
     password = resolve_password()
 
-    def page(role, title, who, body_json, nav, hide_upload=False):
+    def page(role, title, who, body_json, nav, owner="", hide_upload=False):
         return (TEMPLATE.replace("__RAW__", body_json)
                 .replace("__ROLE__", role)
                 .replace("__TITLE__", title)
                 .replace("__WHO__", who)
                 .replace("__NAV__", nav)
-                .replace("__UPLOADHIDE__", ' style="display:none"' if hide_upload else ""))
+                .replace("__OWNER__", json.dumps(owner))
+                .replace("__UPLOADHIDE__", ' style="display:none"' if hide_upload else "")
+                # the report is a per-employee summary aimed at the shared views;
+                # a single-analyst page does not offer it
+                .replace("__REPHIDE__", ' style="display:none"' if owner else ""))
 
     # --- manager views: full data, linked to each other, one shared password ---
     iso_out = os.path.join(os.path.dirname(out), "isolved.html")
@@ -558,7 +562,7 @@ def main():
         with open(fn, "w", encoding="utf-8") as f:
             f.write(wrap_encrypted(
                 page("tc", name, "analyst",
-                     json.dumps(sub, ensure_ascii=False), "", hide_upload=True),
+                     json.dumps(sub, ensure_ascii=False), "", owner=name),
                 name, analyst_pws[name]))
         flag = "" if name in in_data else "  <-- WARNING: name not found in the CR report"
         print(f"  {os.path.basename(fn)}: {len(sub['cr'])} CRs, {len(sub['ai'])} AIs, "
@@ -869,7 +873,7 @@ __NAV__
     <label for="emp" style="font-weight:650">Employee</label>
     <input id="emp" list="emplist" placeholder="Type to search names&hellip;" autocomplete="off">
     <datalist id="emplist"></datalist>
-    <button id="repbtn">&#128196; Generate report</button>
+    <button id="repbtn"__REPHIDE__>&#128196; Generate report</button>
     <span class="search">
       <input id="connsearch" placeholder="&#128269; Search all connections&hellip;" autocomplete="off">
       <div id="connresults" class="results"></div>
@@ -1275,6 +1279,34 @@ const dbDel = key => idb().then(db => new Promise((res,rej)=>{
 RAW.oe = RAW.oe || [];
 RAW.ms = RAW.ms || [];
 RAW.dates = RAW.dates || {};
+
+// On a per-analyst page OWNER is that analyst; on the shared manager pages it is
+// empty. The page ships pre-sliced, but the viewer can upload a full CR/AI export
+// — so re-apply the same slice to anything that replaces RAW, keeping the page a
+// view of one person's work. Mirrors analyst_slice() in build_dashboard.py.
+const OWNER = __OWNER__;
+function ownerFilter(){
+  if(!OWNER) return;
+  const crs = (RAW.cr||[]).filter(r => txt(r['Technical Contact'])===OWNER);
+  const crIds = new Set(crs.map(r=>r['Request ID']).filter(v=>v!=null));
+  const ekeys = new Set(crs.map(r=>exactKey(r['Customer'], r['Carrier'])));
+  const bkeys = new Set(crs.map(r=>baseKey(r['Customer'], r['Carrier'])));
+  const infos = crs.map(r=>({nc:norm(r['Customer']), nk:normCarrier(r['Carrier'])}));
+  RAW.cr = crs;
+  RAW.oe = (RAW.oe||[]).filter(r => txt(r['TechnicalContact'])===OWNER);
+  RAW.ms = (RAW.ms||[]).filter(m => crIds.has(m['ConnectivityRequestID']));
+  RAW.ai = (RAW.ai||[]).filter(a => {
+    const mine = txt(a['Requestor'])===OWNER || txt(a['CurrentlyPendingOn'])===OWNER;
+    const crid = a['ConnectivityRequestID'];
+    if(crid!=null && crid!=='') return crIds.has(crid) || mine;
+    if(mine) return true;
+    if(ekeys.has(exactKey(a['ClientName'], a['CarrierName']))) return true;
+    if(bkeys.has(baseKey(a['ClientName'], a['CarrierName']))) return true;
+    const nc = norm(a['ClientName']), nk = normCarrier(a['CarrierName']);
+    return infos.some(x => clientAlike(nc, x.nc) && carrierAlike(nk, x.nk));
+  });
+}
+
 async function restoreSaved(){
   let saved = null;
   try{ const s = await dbGet(DB_KEY); if(s) saved = JSON.parse(s); }catch(e){}
@@ -1287,6 +1319,7 @@ async function restoreSaved(){
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.ms && saved.ms.length) RAW.ms = saved.ms;
     if(saved.dates) RAW.dates = saved.dates;
+    ownerFilter();
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
   } else if(saved){
     dbDel(DB_KEY).catch(()=>{});
@@ -1454,8 +1487,10 @@ function renderStageAvgs(){
   // total production for the chosen year (Ready-for-Production date, falling
   // back to Production date) with the rank among everyone who produced then
   const yrank = prodRank(curEmp, p=>p.month.slice(0,4)===curAvgYear);
+  // a single-analyst page holds only their rows, so team ranking is meaningless
+  // there ("rank #1 of 1") — show the bare count instead
   $('#avgprodcount').innerHTML = `${yrank.c} CR${yrank.c===1?'':'s'} in ${curAvgYear}`
-    + (yrank.c && yrank.ranked ? ` &middot; <a class="lnk rankbtn" data-scope="year" title="show the full ranking">rank #${yrank.r} of ${yrank.n}</a>` : '');
+    + (!OWNER && yrank.c && yrank.ranked ? ` &middot; <a class="lnk rankbtn" data-scope="year" title="show the full ranking">rank #${yrank.r} of ${yrank.n}</a>` : '');
   const ints = [];   // completed intervals on this year's produced CRs
   for(const s of mine){
     if(prodYearOf(s)!==curAvgYear) continue;
@@ -1675,9 +1710,12 @@ function renderProd(months, mine){
   $('#mon').innerHTML = months.map(m=>`<option${m===curMonth?' selected':''}>${m}</option>`).join('');
   $('#mon').onchange = e => { curMonth = e.target.value; render(); };
   const mrank = prodRank(curEmp, p=>p.month===curMonth);
-  $('#prodcount').innerHTML = `<b>${rows.length}</b> for ${curEmp} &middot; team total ${team}`
-    + (team ? ` &middot; <b>${Math.round(rows.length/team*1000)/10}%</b> of team total` : '')
-    + (rows.length && mrank.ranked ? ` &middot; <a class="lnk rankbtn" data-scope="month" title="show the full ranking">rank <b>#${mrank.r}</b> of ${mrank.n}</a>` : '');
+  // team total / share / rank compare against the whole team, so they only make
+  // sense on the shared pages — an analyst page carries just their own rows
+  $('#prodcount').innerHTML = `<b>${rows.length}</b> for ${curEmp}`
+    + (!OWNER ? ` &middot; team total ${team}` : '')
+    + (!OWNER && team ? ` &middot; <b>${Math.round(rows.length/team*1000)/10}%</b> of team total` : '')
+    + (!OWNER && rows.length && mrank.ranked ? ` &middot; <a class="lnk rankbtn" data-scope="month" title="show the full ranking">rank <b>#${mrank.r}</b> of ${mrank.n}</a>` : '');
   $('#prodtable').innerHTML = rows.length ? `<table>
     <tr><th>CR</th><th>Customer - Carrier</th><th>Ready for Production date</th><th>Production date</th><th>Status</th><th></th></tr>
     ${rows.map(p=>`<tr id="prod-${p._i}"><td class="dt"><a class="lnk" href="${crUrl(p.id)}" target="_blank">#${p.id}</a></td><td>${p.customer} - ${p.carrier}</td>
@@ -1979,6 +2017,9 @@ $('#files').onchange = async e => {
     if(newMs){ RAW.ms = newMs; }
     // "today" for day-based calcs = the newest report date currently loaded
     RAW.generated = [RAW.dates.cr, RAW.dates.ai, RAW.dates.oe].filter(Boolean).sort().at(-1) || localDay(new Date());
+    // slice an uploaded full report down to this page's owner before it is
+    // processed or cached, so only their rows are ever shown or stored
+    ownerFilter();
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
     let saveWarn = '';
     try{ await dbSet(DB_KEY, JSON.stringify(RAW)); }
