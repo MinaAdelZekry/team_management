@@ -1,5 +1,6 @@
-# Dashboard password — never commit. Read at build time by build_dashboard.py.
+# Dashboard passwords — never commit. Read at build time by build_dashboard.py.
 dashboard_password.txt
+analyst_passwords.json
 
 # Python
 __pycache__/

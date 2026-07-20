@@ -48,6 +48,10 @@ import hashlib, hmac, struct, base64
 
 PBKDF2_ITER = 200000
 
+# git-ignored {"Analyst Name": "their password"} map. Every analyst listed here
+# gets their own encrypted page containing only their rows.
+ANALYST_PW_FILE = "analyst_passwords.json"
+
 
 def resolve_password():
     pw = os.environ.get("DASH_PASSWORD")
@@ -83,6 +87,23 @@ def encrypt_payload(plaintext, password, iterations=PBKDF2_ITER):
     b = lambda x: base64.b64encode(x).decode()
     return {"v": 1, "salt": b(salt), "iv": b(iv), "iter": iterations,
             "ct": b(ct), "tag": b(tag)}
+
+
+def decrypt_payload(payload, password):
+    """Inverse of encrypt_payload. Raises ValueError if the password is wrong."""
+    d = lambda s: base64.b64decode(s)
+    salt, iv, ct, tag = d(payload["salt"]), d(payload["iv"]), d(payload["ct"]), d(payload["tag"])
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt,
+                             int(payload["iter"]), dklen=64)
+    key_enc, key_mac = dk[:32], dk[32:]
+    if not hmac.compare_digest(hmac.new(key_mac, iv + ct, hashlib.sha256).digest(), tag):
+        raise ValueError("wrong password")
+    ks = bytearray()
+    i = 0
+    while len(ks) < len(ct):
+        ks += hmac.new(key_enc, iv + struct.pack(">I", i), hashlib.sha256).digest()
+        i += 1
+    return bytes(a ^ b for a, b in zip(ct, ks)).decode("utf-8")
 
 
 def wrap_encrypted(html, title, password):
@@ -291,7 +312,111 @@ def _norm(s):
 
 
 def _base_key(client, carrier):
-    return (_norm(client), _norm(re.sub(r"\(.*?\)", " ", str("" if carrier is None else carrier))))
+    return (_norm(client), _norm_carrier(carrier))
+
+
+def _norm_carrier(carrier):
+    return _norm(re.sub(r"\(.*?\)", " ", str("" if carrier is None else carrier)))
+
+
+def _exact_key(client, carrier):
+    return (_norm(client), _norm(carrier))
+
+
+def _txt(v):
+    return "" if v is None else str(v).strip()
+
+
+# --- per-analyst slicing -------------------------------------------------
+# These mirror clientAlike()/carrierAlike()/aiAlike() in the dashboard JS so an
+# analyst's page carries exactly the action items the full page would attach to
+# them — no more (which would leak a colleague's rows) and no less (which would
+# silently change their counts).
+def _client_alike(a, b):
+    return bool(a and b and (a == b or
+                ((a.startswith(b) or b.startswith(a)) and min(len(a), len(b)) >= 20)))
+
+
+def _carrier_alike(a, b):
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    sq = lambda s: "".join(w[:-1] if w.endswith("s") else w for w in s.split(" "))
+    A, B = sq(a), sq(b)
+    if min(len(A), len(B)) >= 4 and (A.startswith(B) or B.startswith(A)):
+        return True
+    acr = lambda s: "".join(w[0] for w in s.split(" ")) if len(s.split(" ")) > 1 else ""
+    A0, B0 = a.replace(" ", ""), b.replace(" ", "")
+    aa, ab = acr(a), acr(b)
+    if len(aa) >= 3 and B0.startswith(aa):
+        return True
+    if len(ab) >= 3 and A0.startswith(ab):
+        return True
+    if len(aa) == 2 and B0.startswith(aa) and len(B0) <= 4:
+        return True
+    if len(ab) == 2 and A0.startswith(ab) and len(A0) <= 4:
+        return True
+    ta, tb = a.split(" "), b.split(" ")
+    if len(ta) == 1 and len(a) >= 3 and a in tb:
+        return True
+    if len(tb) == 1 and len(b) >= 3 and b in ta:
+        return True
+    if len(ta[0]) >= 5 and ta[0] == tb[0]:
+        return True
+    return False
+
+
+def analyst_slice(raw, analyst):
+    """Return a copy of `raw` containing only the rows an analyst's own page
+    needs: their CRs and OEs, the action items attached to those CRs (or that
+    name them as requestor / responsible party), and the matching migration
+    rows. Nothing belonging solely to another analyst is included."""
+    crs = [r for r in raw["cr"] if _txt(r.get("Technical Contact")) == analyst]
+    oes = [r for r in raw["oe"] if _txt(r.get("TechnicalContact")) == analyst]
+    cr_ids = {r.get("Request ID") for r in crs if r.get("Request ID") is not None}
+    ekeys = {_exact_key(r.get("Customer"), r.get("Carrier")) for r in crs}
+    bkeys = {_base_key(r.get("Customer"), r.get("Carrier")) for r in crs}
+    infos = [(_norm(r.get("Customer")), _norm_carrier(r.get("Carrier"))) for r in crs]
+
+    ais = []
+    for a in raw["ai"]:
+        crid = a.get("ConnectivityRequestID")
+        # an AI carrying a CR id links by id only (authoritative, as in the JS)
+        if crid is not None:
+            if crid in cr_ids or _txt(a.get("Requestor")) == analyst \
+                    or _txt(a.get("CurrentlyPendingOn")) == analyst:
+                ais.append(a)
+            continue
+        if _txt(a.get("Requestor")) == analyst or _txt(a.get("CurrentlyPendingOn")) == analyst:
+            ais.append(a); continue
+        if _exact_key(a.get("ClientName"), a.get("CarrierName")) in ekeys \
+                or _base_key(a.get("ClientName"), a.get("CarrierName")) in bkeys:
+            ais.append(a); continue
+        nc, nk = _norm(a.get("ClientName")), _norm_carrier(a.get("CarrierName"))
+        if any(_client_alike(nc, c) and _carrier_alike(nk, k) for c, k in infos):
+            ais.append(a)
+
+    ms = [m for m in raw["ms"] if m.get("ConnectivityRequestID") in cr_ids]
+    return dict(raw, cr=crs, ai=ais, oe=oes, ms=ms)
+
+
+def slugify(name):
+    s = re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-")
+    return s or "analyst"
+
+
+def load_analyst_passwords():
+    """{analyst name: password} from a git-ignored JSON file; {} when absent."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        ANALYST_PW_FILE)
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    # keys starting with "_" are notes/comments, not analysts
+    return {str(k).strip(): str(v) for k, v in data.items()
+            if str(v).strip() and not str(k).startswith("_")}
 
 
 def detect(paths):
@@ -387,32 +512,60 @@ def main():
 
     password = resolve_password()
 
-    def page(role, title, who, other_href, other_label):
-        return (TEMPLATE.replace("__RAW__", raw_json)
+    def page(role, title, who, body_json, nav, hide_upload=False):
+        return (TEMPLATE.replace("__RAW__", body_json)
                 .replace("__ROLE__", role)
                 .replace("__TITLE__", title)
                 .replace("__WHO__", who)
-                .replace("__OTHER_HREF__", other_href)
-                .replace("__OTHER_LABEL__", other_label))
+                .replace("__NAV__", nav)
+                .replace("__UPLOADHIDE__", ' style="display:none"' if hide_upload else ""))
 
+    # --- manager views: full data, linked to each other, one shared password ---
     iso_out = os.path.join(os.path.dirname(out), "isolved.html")
+    team_out = os.path.join(os.path.dirname(out), "team.html")
+    link = '    <a class="viewlink" href="%s">%s &rarr;</a>\n'
+
+    nav_tc = (link % (os.path.basename(iso_out), "Switch to iSolved view")
+              + link % ("team.html", "Team overview")).rstrip("\n")
+    nav_iso = (link % (os.path.basename(out), "Switch to Analyst view")
+               + link % ("team.html", "Team overview")).rstrip("\n")
+
     with open(out, "w", encoding="utf-8") as f:
         f.write(wrap_encrypted(
-            page("tc", "Analyst Dashboard", "analyst",
-                 os.path.basename(iso_out), "Switch to iSolved view"),
+            page("tc", "Analyst Dashboard", "analyst", raw_json, nav_tc),
             "Analyst Dashboard", password))
     with open(iso_out, "w", encoding="utf-8") as f:
         f.write(wrap_encrypted(
-            page("isolved", "iSolved Dashboard", "iSolved contact",
-                 os.path.basename(out), "Switch to Analyst view"),
+            page("isolved", "iSolved Dashboard", "iSolved contact", raw_json, nav_iso),
             "iSolved Dashboard", password))
-    team_out = os.path.join(os.path.dirname(out), "team.html")
     with open(team_out, "w", encoding="utf-8") as f:
         f.write(wrap_encrypted(
             TEAM_TEMPLATE.replace("__RAW__", raw_json),
             "Team Overview", password))
     print(f"Wrote {out} + {iso_out} + {team_out} (encrypted): {int(mask.sum())} CR rows, "
           f"{len(ai)} AI rows, {len(oe_recs)} OE rows, {len(ms_recs)} MS rows embedded")
+
+    # --- per-analyst views: only that analyst's rows, own password, no nav ---
+    analyst_pws = load_analyst_passwords()
+    if not analyst_pws:
+        print(f"No {ANALYST_PW_FILE} found — skipped per-analyst pages.")
+        return
+    in_data = {_txt(r.get("Technical Contact")) for r in raw["cr"]}
+    in_data.discard("")
+    for name in sorted(analyst_pws):
+        sub = analyst_slice(raw, name)
+        fn = os.path.join(os.path.dirname(out), f"analyst-{slugify(name)}.html")
+        with open(fn, "w", encoding="utf-8") as f:
+            f.write(wrap_encrypted(
+                page("tc", name, "analyst",
+                     json.dumps(sub, ensure_ascii=False), "", hide_upload=True),
+                name, analyst_pws[name]))
+        flag = "" if name in in_data else "  <-- WARNING: name not found in the CR report"
+        print(f"  {os.path.basename(fn)}: {len(sub['cr'])} CRs, {len(sub['ai'])} AIs, "
+              f"{len(sub['oe'])} OEs for {name}{flag}")
+    missing = sorted(in_data - set(analyst_pws))
+    if missing:
+        print(f"  No password set (no page built) for: {', '.join(missing)}")
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -698,14 +851,13 @@ TEMPLATE = r"""<!DOCTYPE html>
   <div class="hleft">
     <h1>__TITLE__</h1>
     <div class="sub"><span class="sublabel">Data as of</span> <span id="gen"></span></div>
-    <a class="viewlink" href="__OTHER_HREF__">__OTHER_LABEL__ &rarr;</a>
-    <a class="viewlink" href="team.html">Team overview &rarr;</a>
+__NAV__
   </div>
   <div class="hright">
     <div class="htop">
       <button id="themebtn" aria-label="Switch light / dark mode" title="Switch light / dark mode">&#127769;</button>
     </div>
-    <div class="upload">
+    <div class="upload"__UPLOADHIDE__>
       <label for="files">&#8682; Update data (upload CR / AI / OE reports)</label>
       <input id="files" type="file" accept=".xlsx,.xls" multiple style="display:none">
     </div>
