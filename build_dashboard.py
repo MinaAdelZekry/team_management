@@ -601,7 +601,11 @@ def find_ms(paths):
 def main():
     args = sys.argv[1:]
     warn_only = "--warn-only" in args
-    args = [a for a in args if a != "--warn-only"]
+    # --no-data ships empty pages: nothing is published inside the file and the
+    # dashboard is populated only by what the viewer uploads (kept in their
+    # browser). Per-analyst pages still slice an upload down to their owner.
+    no_data = "--no-data" in args
+    args = [a for a in args if a not in ("--warn-only", "--no-data")]
     out = "Analyst_Dashboard.html"
     if args and args[-1].lower().endswith((".html", ".htm")):
         out = args.pop()
@@ -657,6 +661,15 @@ def main():
            "dates": {"cr": today, "ai": today, "oe": today if oe_path else None},
            "cr": records(cr[mask], CR_KEEP), "ai": records(ai, AI_KEEP),
            "oe": oe_recs, "ms": ms_recs}
+
+    # keep the real data for the analyst-name check even when shipping empty
+    full_raw = raw
+    if no_data:
+        # publish empty shells: the reports are still read above (so the column
+        # checks still run and analyst names are still validated) but nothing is
+        # embedded — the page is populated only by what the viewer uploads
+        raw = {"generated": today, "dates": {"cr": None, "ai": None, "oe": None},
+               "cr": [], "ai": [], "oe": [], "ms": []}
 
     raw_json = json.dumps(raw, ensure_ascii=False)
 
@@ -714,7 +727,7 @@ def main():
     if not analyst_pws:
         print(f"No {ANALYST_PW_FILE} found — skipped per-analyst pages.")
         return
-    in_data = {_txt(r.get("Technical Contact")) for r in raw["cr"]}
+    in_data = {_txt(r.get("Technical Contact")) for r in full_raw["cr"]}
     in_data.discard("")
     for name in sorted(analyst_pws):
         sub = analyst_slice(raw, name)
@@ -1026,6 +1039,7 @@ __NAV__
       <input id="files" type="file" accept=".xlsx,.xls" multiple style="display:none">
     </div>
     <div id="upmsg"></div>
+    <a id="resetdata" class="viewlink" href="#" title="Discard the copy saved in this browser and show the published data again">&#8635; Reset to published data</a>
   </div>
 </div></header>
 <div class="wrap">
@@ -1474,19 +1488,18 @@ async function restoreSaved(){
     if(!saved) saved = JSON.parse(localStorage.getItem(DB_KEY)||'null');
     localStorage.removeItem(DB_KEY);
   }catch(e){}
-  // Prefer the browser copy whenever it is at least as new as the embedded
-  // build. It must be >=, not >: the pages now ship WITH data, so a same-day
-  // upload (the normal case) would otherwise be discarded and deleted here.
-  // Only a strictly newer deployed build supersedes a local upload.
-  if(saved && (!RAW.cr.length || saved.generated >= RAW.generated)){
+  // An uploaded sheet is kept regardless of its date: whatever the viewer last
+  // uploaded is what they see, and it survives reloads. No date comparison —
+  // the embedded build data is only a starting point until someone uploads.
+  // Consequence: once uploaded, a newly deployed build will NOT replace this
+  // copy; the reader must use "Reset to published data" to go back.
+  if(saved){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.ms && saved.ms.length) RAW.ms = saved.ms;
     if(saved.dates) RAW.dates = saved.dates;
     ownerFilter();
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
-  } else if(saved){
-    dbDel(DB_KEY).catch(()=>{});
   }
 }
 let DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
@@ -2241,6 +2254,17 @@ $('#files').onchange = async e => {
   e.target.value='';
 };
 
+// an uploaded sheet is kept for good, so offer an explicit way back to the
+// data this page was published with
+const _reset = $('#resetdata');
+if(_reset) _reset.onclick = async ev => {
+  ev.preventDefault();
+  if(!confirm('Discard the report you uploaded in this browser and go back to the published data?')) return;
+  try{ await dbDel(DB_KEY); }catch(e){}
+  try{ localStorage.removeItem(DB_KEY); }catch(e){}
+  location.reload();
+};
+
 restoreSaved().catch(()=>{}).then(()=>{
   initSelectors(); render();
   if(!RAW.cr.length && !RAW.ai.length){
@@ -2478,6 +2502,7 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
       <input id="files" type="file" accept=".xlsx,.xls" multiple style="display:none">
     </div>
     <div id="upmsg"></div>
+    <a id="resetdata" class="viewlink" href="#" title="Discard the copy saved in this browser and show the published data again">&#8635; Reset to published data</a>
   </div>
 </div></header>
 <div class="wrap">
@@ -3040,16 +3065,21 @@ const dbSet = (key,val) => idb().then(db => new Promise((res,rej)=>{
   const tx = db.transaction('kv','readwrite'); tx.objectStore('kv').put(val,key);
   tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
 }));
+const dbDel = key => idb().then(db => new Promise((res,rej)=>{
+  const tx = db.transaction('kv','readwrite'); tx.objectStore('kv').delete(key);
+  tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+}));
 async function restoreSaved(){
   let saved = null;
   try{ const s = await dbGet(DB_KEY); if(s) saved = JSON.parse(s); }catch(e){}
   // use the saved upload when it is newer than the embedded data, or whenever the
   // file ships empty (an emptied file) so the browser copy is the source of truth
-  // Prefer the browser copy whenever it is at least as new as the embedded
-  // build. It must be >=, not >: the pages now ship WITH data, so a same-day
-  // upload (the normal case) would otherwise be discarded and deleted here.
-  // Only a strictly newer deployed build supersedes a local upload.
-  if(saved && (!RAW.cr.length || saved.generated >= RAW.generated)){
+  // An uploaded sheet is kept regardless of its date: whatever the viewer last
+  // uploaded is what they see, and it survives reloads. No date comparison —
+  // the embedded build data is only a starting point until someone uploads.
+  // Consequence: once uploaded, a newly deployed build will NOT replace this
+  // copy; the reader must use "Reset to published data" to go back.
+  if(saved){
     RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.ms && saved.ms.length) RAW.ms = saved.ms;
@@ -3158,6 +3188,17 @@ $('#files').onchange = async e => {
     msg.textContent = `Updated: ${names.join(', ')}` + saveWarn + colWarn;
   }catch(err){ msg.className='err'; msg.textContent='Update failed: '+err.message; }
   e.target.value='';
+};
+
+// an uploaded sheet is kept for good, so offer an explicit way back to the
+// data this page was published with
+const _reset = $('#resetdata');
+if(_reset) _reset.onclick = async ev => {
+  ev.preventDefault();
+  if(!confirm('Discard the report you uploaded in this browser and go back to the published data?')) return;
+  try{ await dbDel(DB_KEY); }catch(e){}
+  try{ localStorage.removeItem(DB_KEY); }catch(e){}
+  location.reload();
 };
 
 restoreSaved().catch(()=>{}).then(()=>{
