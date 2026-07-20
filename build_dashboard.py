@@ -17,7 +17,7 @@ Rules implemented:
   - AI pending days = days since last comment, falling back to the AI
     creation (start) date when there is no comment.
 """
-import os, sys, json, re
+import os, sys, json, re, difflib
 import pandas as pd
 from datetime import datetime
 
@@ -301,6 +301,126 @@ OE_KEEP = ["OERequestID", "ConnectivityRequestID", "ClientName", "CarrierName",
 MS_KEEP = ["ConnectivityRequestID", "MigrationTestingDate"]
 ACTIVE = ["In Progress", "Blocked", "On Hold", "Not Started"]
 
+# --- report column checks -------------------------------------------------
+# records() keeps only the columns that exist, so a renamed column would vanish
+# silently and still "build successfully" — e.g. a renamed Technical Contact
+# leaves every CR unassigned and every analyst page empty. Check up front and
+# refuse to build instead, pointing at the likely new name.
+#
+# Each entry is a group of accepted spellings, satisfied if ANY is present. That
+# is how the existing aliases work (DueDate / Due Date / DueOn), and it is how
+# you absorb a rename: add the new name to the group, keep the old one.
+CR_REQUIRED = [("Request ID",), ("Status",), ("Created Date",), ("Customer",),
+               ("Carrier",), ("Stage",), ("Technical Contact",),
+               ("Ready For Production",), ("Production",)]
+AI_REQUIRED = [("ActionItemID",), ("ClientName",), ("CarrierName",),
+               ("Requestor",), ("CurrentlyPendingOn",), ("StartDate",),
+               ("LastCommentOwner",), ("LastCommentDate",),
+               ("DueDate", "Due Date", "DueOn"), ("ConnectivityRequestID",)]
+OE_REQUIRED = [("OERequestID",), ("Status",), ("ClientName",), ("CarrierName",),
+               ("TechnicalContact",)]
+MS_REQUIRED = [("ConnectivityRequestID",), ("MigrationTestingDate",)]
+
+# columns whose emptiness silently produces blank pages rather than an error
+CR_NONEMPTY = ["Request ID", "Status", "Technical Contact"]
+AI_NONEMPTY = ["ClientName", "CurrentlyPendingOn"]
+OE_NONEMPTY = ["Status", "TechnicalContact"]
+
+# interchangeable spellings: while one member is present the others are expected
+# to be absent, so they must not be reported as missing
+CR_ALIASES = [("Migration", "IsMigration", "Is Migration", "Migration Request",
+               "Migration Type", "Migration Phase")]
+AI_ALIASES = [("DueDate", "Due Date", "DueOn")]
+
+
+def _blank_share(series):
+    """Fraction of rows that are empty/NaN/whitespace."""
+    if not len(series):
+        return 1.0
+    s = series.astype(str).str.strip().str.lower()
+    return float(s.isin(["", "nan", "none", "nat"]).mean())
+
+
+def expected_groups(required, keep, aliases=()):
+    """Every column the build reads, as groups of accepted spellings. A group is
+    satisfied when ANY member is present, so aliases collapse to one entry."""
+    seen, groups = set(), []
+
+    def add(g):
+        key = frozenset(g)
+        if key not in seen:
+            seen.add(key)
+            groups.append(tuple(g))
+
+    for g in required:
+        add(g)
+    for g in aliases:
+        add(g)
+    covered = {c for g in groups for c in g}
+    for c in keep:
+        if c not in covered:
+            add((c,))
+    return groups
+
+
+def check_columns(label, df, groups, nonempty=()):
+    """Return (problem_lines, warn_lines). Every column the code reads must be
+    present — anything missing is reported, with the most likely new name."""
+    cols = list(df.columns)
+    have = set(cols)
+    known = {c for g in groups for c in g}
+    spare = [c for c in cols if c not in known]   # columns the code never reads
+    problems, warn = [], []
+    for group in groups:
+        if any(g in have for g in group):
+            continue
+        # a rename shows up as an unused column with a similar name
+        near = (difflib.get_close_matches(group[0], spare, n=3, cutoff=0.6)
+                or difflib.get_close_matches(group[0], spare, n=3, cutoff=0.4))
+        hint = (f"      likely renamed to: {', '.join(near)}" if near else
+                "      no similar column found in the file")
+        problems.append(f"  [{label}] missing: {' / '.join(group)}\n{hint}")
+    for c in nonempty:
+        if c not in have:
+            continue
+        share = _blank_share(df[c])
+        if share == 1.0:
+            warn.append(f"  [{label}] column '{c}' exists but every row is empty "
+                        f"— pages built from it will be blank")
+        elif share >= 0.80:
+            warn.append(f"  [{label}] column '{c}' is {share:.0%} empty "
+                        f"— rows without it cannot be attributed")
+    return problems, warn
+
+
+def report_column_problems(checks, warn_only=False):
+    """checks = [(label, df, groups, nonempty), ...]; prints warnings and, unless
+    warn_only, exits without writing anything when a column is missing."""
+    fatal, warn = [], []
+    for label, df, groups, nonempty in checks:
+        f, w = check_columns(label, df, groups, nonempty)
+        fatal += f
+        warn += w
+    for w in warn:
+        print("WARNING:" + w[1:] if w.startswith(" ") else w)
+    if not fatal:
+        return
+    msg = ("\n" + "=" * 70
+           + f"\nCOLUMN MISMATCH — {len(fatal)} column(s) the build reads are not "
+             "in the reports:\n\n" + "\n".join(fatal)
+           + "\n\nA column was probably renamed in the export. Fix it by adding the "
+             "new name ALONGSIDE the old one (never replacing it) in:\n"
+             "  1. the matching *_KEEP list in build_dashboard.py\n"
+             "  2. the matching *_REQUIRED / *_ALIASES list, if it is listed there\n"
+             "  3. the template JS, which parses uploads in the browser\n"
+             "Re-run with --warn-only to build anyway (the affected data will be "
+             "missing from the pages).\n" + "=" * 70)
+    if warn_only:
+        print(msg)
+        print("--warn-only: continuing despite the mismatch.\n")
+    else:
+        sys.exit(msg + "\nNothing was written.")
+
 # mirrors norm()/baseKey() in the dashboard JS so the embed mask keeps every
 # CR that an action item could attach to
 _STOP = re.compile(r"\b(inc|llc|llp|ltd|co|corp|corporation|company|the|of)\b")
@@ -444,9 +564,14 @@ def records(df, keep):
 
 
 def find_ms(paths):
-    """Return the MigrationSummary frame from wherever it lives — a sheet in any
+    """Return the MigrationSummary rows from wherever they live — sheets in any
     of the given workbooks, or a standalone file — identified by the presence of
-    the MigrationTestingDate column. First match wins; None if not present."""
+    the MigrationTestingDate column. None if not present.
+
+    The report splits migrations across several sheets (e.g. "eBN Migrations"
+    and "EB Migrations"), so EVERY matching sheet is collected and concatenated;
+    taking only the first would silently drop the rest."""
+    frames, found = [], []
     for p in paths:
         try:
             with pd.ExcelFile(p) as xl:
@@ -456,14 +581,27 @@ def find_ms(paths):
                     except Exception:
                         continue
                     if "MigrationTestingDate" in cols:
-                        return pd.read_excel(xl, sheet_name=sh)
+                        frames.append(pd.read_excel(xl, sheet_name=sh))
+                        found.append(f"{os.path.basename(p)}[{sh}]")
         except Exception:
             continue
-    return None
+    if not frames:
+        return None
+    ms = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    if len(frames) > 1:
+        print(f"MigrationSummary: combined {len(frames)} sheets "
+              f"({', '.join(found)}) -> {len(ms)} rows")
+    # a CR should appear once; if sheets overlap keep the row that carries a date
+    if "ConnectivityRequestID" in ms.columns:
+        ms = (ms.sort_values("MigrationTestingDate", na_position="last")
+                .drop_duplicates(subset="ConnectivityRequestID", keep="first"))
+    return ms
 
 
 def main():
     args = sys.argv[1:]
+    warn_only = "--warn-only" in args
+    args = [a for a in args if a != "--warn-only"]
     out = "Analyst_Dashboard.html"
     if args and args[-1].lower().endswith((".html", ".htm")):
         out = args.pop()
@@ -473,6 +611,20 @@ def main():
 
     cr = pd.read_excel(cr_path)
     ai = pd.read_excel(ai_path)
+    oe = pd.read_excel(oe_path) if oe_path else None
+    ms = find_ms(args)
+
+    # verify the reports still carry the columns this build reads, before any of
+    # them are touched — a rename must stop the build, not silently empty it
+    checks = [("CR", cr, expected_groups(CR_REQUIRED, CR_KEEP, CR_ALIASES), CR_NONEMPTY),
+              ("AI", ai, expected_groups(AI_REQUIRED, AI_KEEP, AI_ALIASES), AI_NONEMPTY)]
+    if oe is not None:
+        checks.append(("OE", oe, expected_groups(OE_REQUIRED, OE_KEEP), OE_NONEMPTY))
+    if ms is not None:
+        checks.append(("MigrationSummary", ms,
+                       expected_groups(MS_REQUIRED, MS_KEEP), ()))
+    report_column_problems(checks, warn_only)
+
     for c in ["StartDate", "LastCommentDate", "DueDate", "Due Date", "DueOn"]:
         if c in ai.columns:
             ai[c] = pd.to_datetime(ai[c], errors="coerce")
@@ -493,11 +645,9 @@ def main():
     if "ConnectivityRequestID" in ai.columns:
         mask |= cr["Request ID"].isin(ai["ConnectivityRequestID"].dropna())
     oe_recs = []
-    if oe_path:
-        oe = pd.read_excel(oe_path)
+    if oe is not None:
         oe_recs = records(oe[oe["Status"].isin(ACTIVE)], OE_KEEP)
     ms_recs = []
-    ms = find_ms(args)
     if ms is not None:
         if "MigrationTestingDate" in ms.columns:
             ms["MigrationTestingDate"] = pd.to_datetime(ms["MigrationTestingDate"], errors="coerce")
@@ -510,6 +660,15 @@ def main():
 
     raw_json = json.dumps(raw, ensure_ascii=False)
 
+    # the same column expectations the build just enforced, handed to the page so
+    # an uploaded report with renamed columns is rejected there too
+    expect_json = json.dumps({
+        "cr": [list(g) for g in expected_groups(CR_REQUIRED, CR_KEEP, CR_ALIASES)],
+        "ai": [list(g) for g in expected_groups(AI_REQUIRED, AI_KEEP, AI_ALIASES)],
+        "oe": [list(g) for g in expected_groups(OE_REQUIRED, OE_KEEP)],
+        "ms": [list(g) for g in expected_groups(MS_REQUIRED, MS_KEEP)],
+    }, ensure_ascii=False)
+
     password = resolve_password()
 
     def page(role, title, who, body_json, nav, owner="", hide_upload=False):
@@ -519,6 +678,7 @@ def main():
                 .replace("__WHO__", who)
                 .replace("__NAV__", nav)
                 .replace("__OWNER__", json.dumps(owner))
+                .replace("__EXPECT__", expect_json)
                 .replace("__UPLOADHIDE__", ' style="display:none"' if hide_upload else "")
                 # the report is a per-employee summary aimed at the shared views;
                 # a single-analyst page does not offer it
@@ -544,7 +704,7 @@ def main():
             "iSolved Dashboard", password))
     with open(team_out, "w", encoding="utf-8") as f:
         f.write(wrap_encrypted(
-            TEAM_TEMPLATE.replace("__RAW__", raw_json),
+            TEAM_TEMPLATE.replace("__RAW__", raw_json).replace("__EXPECT__", expect_json),
             "Team Overview", password))
     print(f"Wrote {out} + {iso_out} + {team_out} (encrypted): {int(mask.sum())} CR rows, "
           f"{len(ai)} AI rows, {len(oe_recs)} OE rows, {len(ms_recs)} MS rows embedded")
@@ -566,7 +726,7 @@ def main():
                 name, analyst_pws[name]))
         flag = "" if name in in_data else "  <-- WARNING: name not found in the CR report"
         print(f"  {os.path.basename(fn)}: {len(sub['cr'])} CRs, {len(sub['ai'])} AIs, "
-              f"{len(sub['oe'])} OEs for {name}{flag}")
+              f"{len(sub['oe'])} OEs, {len(sub['ms'])} MS for {name}{flag}")
     missing = sorted(in_data - set(analyst_pws))
     if missing:
         print(f"  No password set (no page built) for: {', '.join(missing)}")
@@ -636,7 +796,7 @@ TEMPLATE = r"""<!DOCTYPE html>
         border:1px solid #45596e;border-radius:8px;padding:8px 10px;cursor:pointer}
   #themebtn:hover{background:#2e4155;color:#dfe8f0}
   #upmsg{font-size:12px;font-family:var(--mono);max-width:360px;text-align:right}
-  #upmsg.ok{color:#8fd6b8} #upmsg.err{color:#ffb3ad}
+  #upmsg.ok{color:#8fd6b8} #upmsg.err{color:#ffb3ad} #upmsg.warn{color:#f0c674}
   .wrap{max-width:1100px;margin:0 auto;padding:0 12px}
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:16px 0 6px}
   select,input#emp{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;
@@ -1980,6 +2140,31 @@ document.addEventListener('click', e => {
 });
 // the report's own date: an export timestamp in the filename (YYYY-MM-DD or
 // YYYY_MM_DD) if present, else the file's last-modified (download) date
+// every column this page reads, per report, as groups of accepted spellings
+// (a group is satisfied when ANY member is present). Mirrors expected_groups()
+// in build_dashboard.py so an uploaded report whose columns were renamed is
+// rejected with a clear message instead of silently loading blank rows.
+const EXPECT = __EXPECT__;
+const _squash = s => String(s).toLowerCase().replace(/[^a-z0-9]/g,'');
+const _toks = s => String(s).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+function colProblems(label, rows, groups){
+  const have = new Set(Object.keys(rows[0]||{}));
+  const spare = [...have].filter(c => !groups.some(g => g.includes(c)));
+  const out = [];
+  for(const g of groups){
+    if(g.some(c => have.has(c))) continue;
+    const gs = _squash(g[0]), gt = _toks(g[0]);
+    const near = spare.filter(s => {
+      const ss = _squash(s);
+      return ss===gs || ss.includes(gs) || gs.includes(ss)
+          || _toks(s).some(t => gt.includes(t));
+    });
+    out.push(`${label}: missing column "${g.join('" / "')}"`
+      + (near.length ? ` — likely renamed to "${near.join('", "')}"` : ''));
+  }
+  return out;
+}
+
 function fileDate(f){
   const m = String(f.name).match(/(20\d\d)[-_](\d\d)[-_](\d\d)/);
   if(m) return `${m[1]}-${m[2]}-${m[3]}`;
@@ -1995,6 +2180,7 @@ $('#files').onchange = async e => {
     msg.className=''; msg.textContent='Reading…';
     let newCr=null, newAi=null, newOe=null, newMs=null, names=[];
     let crDate=null, aiDate=null, oeDate=null;
+    const colErrs = [];
     for(const f of files){
       // no cellDates: date cells stay raw Excel serial numbers, which encode
       // the sheet's literal calendar day — no timezone interpretation at all
@@ -2002,15 +2188,34 @@ $('#files').onchange = async e => {
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
       const cols = new Set(Object.keys(rows[0]||{}));
       const tags = [];
-      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); }
-      else if(cols.has('OERequestID')){ newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
-      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); }
-      // MigrationSummary — any sheet in the workbook carrying MigrationTestingDate
-      const mss = wb.SheetNames.find(n=>((XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1})[0])||[]).includes('MigrationTestingDate'));
-      if(mss){ newMs = XLSX.utils.sheet_to_json(wb.Sheets[mss], {defval:null}); tags.push('MigrationSummary'); }
+      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); colErrs.push(...colProblems('AI', rows, EXPECT.ai)); }
+      else if(cols.has('OERequestID')){ colErrs.push(...colProblems('OE', rows, EXPECT.oe)); newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
+      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); colErrs.push(...colProblems('CR', rows, EXPECT.cr)); }
+      // MigrationSummary — EVERY sheet carrying MigrationTestingDate, since the
+      // report splits migrations across sheets (eBN / EB); taking only the first
+      // would silently drop the rest
+      const mss = wb.SheetNames.filter(n=>((XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1})[0])||[]).includes('MigrationTestingDate'));
+      if(mss.length){
+        const all = mss.flatMap(n=>XLSX.utils.sheet_to_json(wb.Sheets[n], {defval:null}));
+        colErrs.push(...colProblems('MigrationSummary', all, EXPECT.ms));
+        const seen = new Map();
+        for(const r of all){
+          const k = r['ConnectivityRequestID'];
+          if(k==null) continue;
+          const prev = seen.get(k);
+          if(!prev || (!prev['MigrationTestingDate'] && r['MigrationTestingDate'])) seen.set(k, r);
+        }
+        newMs = [...seen.values()];
+        tags.push(mss.length>1 ? `MigrationSummary (${mss.length} sheets)` : 'MigrationSummary');
+      }
       names.push(f.name + (tags.length ? ` (${tags.join(', ')})` : ' (unrecognized — skipped)'));
     }
     if(!newCr && !newAi && !newOe && !newMs) throw new Error('No file matched the CR, AI, OE or MigrationSummary report format.');
+    // a renamed column is reported but does NOT stop the upload — the rest of
+    // the report still loads; only the renamed fields come through empty
+    const colWarn = colErrs.length
+      ? ` — COLUMN CHANGED: ${colErrs.join(' • ')}. Those fields stay empty until the dashboard is rebuilt with the new name.`
+      : '';
     if(newCr){ RAW.cr = newCr; RAW.dates.cr = crDate; }
     if(newAi){ RAW.ai = newAi; RAW.dates.ai = aiDate; }
     if(newOe){ RAW.oe = newOe; RAW.dates.oe = oeDate; }
@@ -2025,9 +2230,9 @@ $('#files').onchange = async e => {
     try{ await dbSet(DB_KEY, JSON.stringify(RAW)); }
     catch(e){ saveWarn = ` — warning: couldn't save for next visit (${e && e.message || e})`; }
     initSelectors(); render();
-    msg.className='ok';
+    msg.className = colWarn ? 'warn' : 'ok';
     msg.textContent = `Updated: ${names.join(', ')} — ${DATA.connections.length} active connections, ${RAW.ai.length} AIs, ${DATA.oes.length} in-progress OEs`
-      + (newCr&&newAi&&newOe ? '' : ' (other reports kept from previous data)') + saveWarn;
+      + (newCr&&newAi&&newOe ? '' : ' (other reports kept from previous data)') + saveWarn + colWarn;
   }catch(err){ msg.className='err'; msg.textContent='Update failed: '+err.message; }
   e.target.value='';
 };
@@ -2103,7 +2308,7 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
         border:1px solid #45596e;border-radius:8px;padding:8px 10px;cursor:pointer}
   #themebtn:hover{background:#2e4155;color:#dfe8f0}
   #upmsg{font-size:12px;font-family:var(--mono);max-width:360px;text-align:right}
-  #upmsg.ok{color:#8fd6b8} #upmsg.err{color:#ffb3ad}
+  #upmsg.ok{color:#8fd6b8} #upmsg.err{color:#ffb3ad} #upmsg.warn{color:#f0c674}
   .wrap{max-width:1100px;margin:0 auto;padding:0 12px}
   h2{font-size:14px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-soft);
      margin:22px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
@@ -2858,6 +3063,31 @@ $('#themebtn').onclick = () =>
   applyTheme(document.documentElement.dataset.theme==='dark' ? 'light' : 'dark');
 
 // ---------- upload ----------
+// every column this page reads, per report, as groups of accepted spellings
+// (a group is satisfied when ANY member is present). Mirrors expected_groups()
+// in build_dashboard.py so an uploaded report whose columns were renamed is
+// rejected with a clear message instead of silently loading blank rows.
+const EXPECT = __EXPECT__;
+const _squash = s => String(s).toLowerCase().replace(/[^a-z0-9]/g,'');
+const _toks = s => String(s).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+function colProblems(label, rows, groups){
+  const have = new Set(Object.keys(rows[0]||{}));
+  const spare = [...have].filter(c => !groups.some(g => g.includes(c)));
+  const out = [];
+  for(const g of groups){
+    if(g.some(c => have.has(c))) continue;
+    const gs = _squash(g[0]), gt = _toks(g[0]);
+    const near = spare.filter(s => {
+      const ss = _squash(s);
+      return ss===gs || ss.includes(gs) || gs.includes(ss)
+          || _toks(s).some(t => gt.includes(t));
+    });
+    out.push(`${label}: missing column "${g.join('" / "')}"`
+      + (near.length ? ` — likely renamed to "${near.join('", "')}"` : ''));
+  }
+  return out;
+}
+
 function fileDate(f){
   const m = String(f.name).match(/(20\d\d)[-_](\d\d)[-_](\d\d)/);
   if(m) return `${m[1]}-${m[2]}-${m[3]}`;
@@ -2873,20 +3103,40 @@ $('#files').onchange = async e => {
     msg.className=''; msg.textContent='Reading…';
     let newCr=null, newAi=null, newOe=null, newMs=null, names=[];
     let crDate=null, aiDate=null, oeDate=null;
+    const colErrs = [];
     for(const f of files){
       const wb = XLSX.read(await f.arrayBuffer());
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
       const cols = new Set(Object.keys(rows[0]||{}));
       const tags = [];
-      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); }
-      else if(cols.has('OERequestID')){ newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
-      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); }
-      // MigrationSummary — any sheet in the workbook carrying MigrationTestingDate
-      const mss = wb.SheetNames.find(n=>((XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1})[0])||[]).includes('MigrationTestingDate'));
-      if(mss){ newMs = XLSX.utils.sheet_to_json(wb.Sheets[mss], {defval:null}); tags.push('MigrationSummary'); }
+      if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); colErrs.push(...colProblems('AI', rows, EXPECT.ai)); }
+      else if(cols.has('OERequestID')){ colErrs.push(...colProblems('OE', rows, EXPECT.oe)); newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
+      else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); colErrs.push(...colProblems('CR', rows, EXPECT.cr)); }
+      // MigrationSummary — EVERY sheet carrying MigrationTestingDate, since the
+      // report splits migrations across sheets (eBN / EB); taking only the first
+      // would silently drop the rest
+      const mss = wb.SheetNames.filter(n=>((XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1})[0])||[]).includes('MigrationTestingDate'));
+      if(mss.length){
+        const all = mss.flatMap(n=>XLSX.utils.sheet_to_json(wb.Sheets[n], {defval:null}));
+        colErrs.push(...colProblems('MigrationSummary', all, EXPECT.ms));
+        const seen = new Map();
+        for(const r of all){
+          const k = r['ConnectivityRequestID'];
+          if(k==null) continue;
+          const prev = seen.get(k);
+          if(!prev || (!prev['MigrationTestingDate'] && r['MigrationTestingDate'])) seen.set(k, r);
+        }
+        newMs = [...seen.values()];
+        tags.push(mss.length>1 ? `MigrationSummary (${mss.length} sheets)` : 'MigrationSummary');
+      }
       names.push(f.name + (tags.length ? ` (${tags.join(', ')})` : ' (unrecognized — skipped)'));
     }
     if(!newCr && !newAi && !newOe && !newMs) throw new Error('No file matched the CR, AI, OE or MigrationSummary report format.');
+    // a renamed column is reported but does NOT stop the upload — the rest of
+    // the report still loads; only the renamed fields come through empty
+    const colWarn = colErrs.length
+      ? ` — COLUMN CHANGED: ${colErrs.join(' • ')}. Those fields stay empty until the dashboard is rebuilt with the new name.`
+      : '';
     if(newCr){ RAW.cr = newCr; RAW.dates.cr = crDate; }
     if(newAi){ RAW.ai = newAi; RAW.dates.ai = aiDate; }
     if(newOe){ RAW.oe = newOe; RAW.dates.oe = oeDate; }
@@ -2896,8 +3146,8 @@ $('#files').onchange = async e => {
     try{ await dbSet(DB_KEY, JSON.stringify(RAW)); }
     catch(e){ saveWarn = ` — warning: couldn't save for next visit (${e && e.message || e})`; }
     render();
-    msg.className='ok';
-    msg.textContent = `Updated: ${names.join(', ')}` + saveWarn;
+    msg.className = colWarn ? 'warn' : 'ok';
+    msg.textContent = `Updated: ${names.join(', ')}` + saveWarn + colWarn;
   }catch(err){ msg.className='err'; msg.textContent='Update failed: '+err.message; }
   e.target.value='';
 };
