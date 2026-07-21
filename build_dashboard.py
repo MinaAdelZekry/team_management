@@ -1426,7 +1426,12 @@ function process(crRows, aiRows, oeRows, generated){
 // uploads are cached in IndexedDB (localStorage's ~5MB quota is too small for
 // full reports and fails silently); a copy saved by the old localStorage
 // version is migrated on first load
-const DB_KEY = 'analystDash';
+// Browser storage is per-ORIGIN, so every page in this site shares one
+// IndexedDB. An analyst page stores its data already sliced to that analyst, so
+// with a shared key its upload would overwrite the full copy the manager pages
+// read back — which made index.html show only one analyst. Scope the key to the
+// owner: analyst pages get their own slot, the shared views keep the full one.
+const DB_KEY = 'analystDash2' + (__OWNER__ ? ':' + __OWNER__ : '');
 const idb = () => new Promise((res,rej)=>{
   const rq = indexedDB.open('analystDashDB',1);
   rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
@@ -3038,7 +3043,9 @@ function dateChips(){
 }
 
 // ---------- cache (shared with the analyst / iSolved pages) ----------
-const DB_KEY = 'analystDash';
+// shares the full-data slot with index.html / isolved.html; see the note in the
+// analyst template about per-origin storage
+const DB_KEY = 'analystDash2';
 const idb = () => new Promise((res,rej)=>{
   const rq = indexedDB.open('analystDashDB',1);
   rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
