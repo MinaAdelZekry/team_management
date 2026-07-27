@@ -2486,6 +2486,39 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
     border-color:color-mix(in srgb, var(--accent) 40%, var(--line))}
   /* floating surfaces sit higher off the page */
   .search .results,.repbox{box-shadow:var(--shadow-lg)}
+  /* --- workload sheet: dense tables that must scroll inside their own card --- */
+  .wscroll{overflow-x:auto;margin:0 -18px;padding:0 18px}
+  .wtbl{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px;box-shadow:none}
+  .wtbl th,.wtbl td{padding:6px 10px;text-align:right;white-space:nowrap;
+        border-bottom:1px solid var(--line)}
+  .wtbl thead th{background:var(--th-bg);color:var(--ink-soft);
+        font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+        vertical-align:bottom}
+  .wtbl thead tr:first-child th{text-align:center;letter-spacing:.7px}
+  .wtbl th.grp,.wtbl td.grp{border-left:1px solid var(--line)}
+  /* the label column stays put while the rest of the table scrolls sideways */
+  .wtbl th.lbl,.wtbl td.lbl{text-align:left;font-weight:600;position:sticky;left:0;z-index:1;
+        background:var(--card);font-family:inherit}
+  .wtbl thead th.lbl{z-index:2;background:var(--th-bg)}
+  .wtbl tr.tot>th.lbl{background:var(--th-bg)}
+  .wtbl tbody tr:hover>td,.wtbl tbody tr:hover>th{background:var(--accent-soft)}
+  .wtbl td{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+  .wtbl td.zero{color:var(--ink-soft);opacity:.55}
+  .wtbl tr.tot>td,.wtbl tr.tot>th{font-weight:700;background:var(--th-bg);
+        border-top:2px solid var(--line)}
+  .wtbl .capbar{display:inline-block;width:54px;height:7px;border-radius:4px;background:var(--paper);
+        overflow:hidden;vertical-align:middle;margin-right:7px;border:1px solid var(--line)}
+  .wtbl .capbar i{display:block;height:100%;background:var(--accent)}
+  .wtbl .capbar i.over{background:var(--amber)} .wtbl .capbar i.hot{background:var(--red)}
+  .wtbl td.warn{color:var(--amber)} .wtbl td.bad{color:var(--red)}
+  .wchips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+  .wchip{background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:7px 12px;
+        font-size:11.5px;color:var(--ink-soft);line-height:1.35}
+  .wchip b{display:block;font-size:19px;font-weight:700;color:var(--ink);
+        font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .wnum{font:inherit;font-family:var(--mono);font-size:12.5px;font-weight:700;width:54px;
+        padding:2px 6px;border:1px solid var(--line);border-radius:6px;
+        background:var(--card);color:var(--ink)}
   /* refined scrollbars */
   *::-webkit-scrollbar{width:11px;height:11px}
   *::-webkit-scrollbar-thumb{background:var(--line);border-radius:10px;border:3px solid var(--card)}
@@ -2532,6 +2565,20 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
   <h2>Pipeline stage duration <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; average time connections spent in each stage &middot; year <select id="duryear" class="yearsel"></select> &middot; show <select id="durstate" class="yearsel"><option value="All">all</option><option value="prod">production</option><option value="inprog">in progress</option></select> &middot; request type <select id="durtype" class="yearsel"></select> &middot; migration <select id="durmig" class="yearsel"></select> &middot; outlier filter <select id="durconf" class="yearsel"><option value="90">90%</option><option value="95">95%</option><option value="99">99%</option><option value="100">off</option></select> &middot; total: <b id="durcount" style="color:var(--ink)"></b></span></h2>
   <div class="card" id="stagedur"></div>
 
+  <h2>Analyst queue <span class="note">&middot; the New Orders workload sheet, recomputed live &middot; expected queue
+    <input id="wexp" class="wnum" type="number" min="1" step="1" value="20"> EDI</span></h2>
+  <div class="card" id="wl-queue"></div>
+
+  <h2>Requirements gathering queue <span class="note">&middot; active CRs still being scoped &middot; expected queue
+    <input id="wrgexp" class="wnum" type="number" min="1" step="1" value="40"> RG</span></h2>
+  <div class="card" id="wl-rg"></div>
+
+  <h2>Monthly ledger <span class="note">&middot; every CR created each month, by the status it holds today, against what reached production</span></h2>
+  <div class="card" id="wl-ledger"></div>
+
+  <h2>Quarter summary <span class="note">&middot; input vs output per calendar quarter</span></h2>
+  <div class="card" id="wl-quarter"></div>
+
   <h2>Cycle time trend <span class="note">&middot; average days from assignment to ready-for-production, by month produced</span></h2>
   <div class="card">
     <div class="gbars" id="cbars" style="height:120px"></div>
@@ -2540,12 +2587,6 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
 
   <h2>Pipeline <span class="note">&middot; where active connections sit, and how long they have been sitting there</span></h2>
   <div class="card" id="pipeline"></div>
-
-  <h2>Aging of active work <span class="note">&middot; days since assignment</span></h2>
-  <div class="card" id="aging"></div>
-
-  <h2>Workload balance <span class="note">&middot; active connections and open action items per analyst</span></h2>
-  <div class="card" id="workload"></div>
 
   <h2>Needs attention</h2>
   <div class="risks" id="risks"></div>
@@ -2664,10 +2705,7 @@ function teamStats(){
   // ---- aging of active work (survivorship-free view of the same question) ----
   const ages = active.map(r=>{ const a = toISO(r['Assignment Date']);
     return a ? {r, d: daysBetween(a, today)} : null; }).filter(Boolean);
-  const ageVals = ages.map(x=>x.d);
   const aged90 = ages.filter(x=>x.d>90), aged180 = ages.filter(x=>x.d>180);
-  const BUCKETS = [['0-30',0,30],['31-60',31,60],['61-90',61,90],['91-180',91,180],['180+',181,1e9]];
-  const buckets = BUCKETS.map(([label,lo,hi])=>({label, n: ages.filter(x=>x.d>=lo&&x.d<=hi).length}));
 
   // ---- how long active work has sat in its CURRENT stage ----
   const inStage = STAGES.map(()=>[]);
@@ -2723,7 +2761,7 @@ function teamStats(){
   const avgOut = out2026.length ? out2026.reduce((a,b)=>a+b,0)/out2026.length : 0;
 
   return {asOf, cr, active, unassigned, stalled, analysts, series, win, load, stageCounts, stageAvg,
-    prod, ages, ageVals, aged90, aged180, buckets, stale90, ext, internal, byCarrier, holdRank,
+    prod, ages, aged90, aged180, stale90, ext, internal, byCarrier, holdRank,
     stalledTest, inTesting, noAI, mig, migActive, oeActive, oePast, thisMonth, prevMonth,
     cycMean: mean(cycAll), cycP90: quantile(cycAll, .9), cycTrend, avgOut,
     cancelled, aiTotal: ai.length};
@@ -2892,6 +2930,338 @@ function renderStageDur(){
     if(el) el.style.display = el.style.display==='none' ? '' : 'none'; };
 }
 
+// ---------- workload sheet ----------
+// A live re-implementation of the "New Orders Assignments - WorkLoad Sheet"
+// workbook. That sheet counted this same CR export with COUNTIFS / SUMPRODUCT
+// against a hard-coded analyst roster, hard-coded month columns and an external
+// link to one fixed column layout. Everything below is derived from the report
+// itself, so the roster, the months and the quarter boundaries follow the data.
+//
+// Workbook column (external ref [1]EDI!) -> report column:
+//   I  request type ("EDI" / "Forms")     N, P  stage        Q  status
+//   L  assignment date (blank = not yet started)             R  created date
+//   S  technical contact                  T  assignment date
+//   W, Y  first production file           AC  production date
+// The workbook flagged migrations by partner name ({"Everything Benefits",
+// "eBenefits Network"}); the report's own Migration column is used instead,
+// which is what the rest of this page already reads.
+//
+// Deliberate departures from the workbook, all of them fixes:
+//   - totals cover every analyst (the sheet summed rows 3:17 while the roster
+//     ran to row 20, silently dropping three people);
+//   - "Total" per month adds Not Started in every month (the sheet's first
+//     month omitted it);
+//   - production months are counted per month (the sheet's 2026 columns all
+//     re-counted January);
+//   - quarters are real calendar quarters with no overlapping month;
+//   - the throughput ratio keeps a constant WL_LAG-month lag throughout (the
+//     sheet's lag collapsed from 3 months to 1 halfway across the row).
+const CHILD_OWNER = 'Dina Medhat';   // the account child CRs are booked under
+const WL_MONTHS = 18;                // most recent created-months to tabulate
+const WL_LAG = 3;                    // months between intake and the output it feeds
+const FORMS_WARN = 3;                // the workbook highlighted a Forms load above this
+// intake is only embedded in full for the last ~400 days, so earlier months
+// would under-count; the ledger stops at that boundary rather than mislead
+const WL_INTAKE_WINDOW = 400;
+let wlExpect = 20, wlRgExpect = 40;
+
+const isForms = r => /form/i.test(txt(r['Request Type']));
+const stageIs = (r, name) => txt(r['Stage']).toLowerCase() === name.toLowerCase();
+const statusIs = (r, name) => txt(r['Status']).toLowerCase() === name.toLowerCase();
+const wlMig = r => { const m = txt(r['Migration']).toLowerCase();
+  return !!m && !['no','false','0','n','none','-'].includes(m); };
+const monthOf = iso => iso ? iso.slice(0,7) : null;
+const addMonths = (m, n) => { const [y,mo] = m.split('-').map(Number);
+  return new Date(Date.UTC(y, mo-1+n, 1)).toISOString().slice(0,7); };
+
+function workloadSheet(){
+  const cr = RAW.cr || [];
+  const asOf = RAW.dates.cr || RAW.generated;
+  const active = cr.filter(r=>ACTIVE.has(txt(r['Status'])));
+  const inProg = cr.filter(r=>statusIs(r,'In Progress'));
+  const latest = list => { const ds = list.map(r=>toISO(r['Assignment Date'])).filter(Boolean).sort();
+    return ds.length ? ds[ds.length-1] : null; };
+
+  // --- per-analyst EDI / Forms queue (workbook rows 3-20) ---
+  const names = [...new Set(inProg.map(r=>txt(r['Technical Contact'])).filter(Boolean))];
+  const years = [...new Set(cr.map(r=>monthOf(toISO(r['Created Date'])))
+    .filter(Boolean).map(m=>m.slice(0,4)))].sort().slice(-2);
+  const rows = names.map(a=>{
+    const own = r => txt(r['Technical Contact'])===a;
+    const mine = inProg.filter(own);
+    const edi = mine.filter(r=>!isForms(r)), forms = mine.filter(isForms);
+    // "Dataset Validation" splits on whether the CR has been assigned yet:
+    // unassigned = not started, assigned = actually being validated
+    const dv = edi.filter(r=>stageIs(r,'Dataset Validation') || stageIs(r,'Obtain Customer Dataset'));
+    const q = {a,
+      notStarted: dv.filter(r=>!toISO(r['Assignment Date'])).length,
+      dataset:    dv.filter(r=>!!toISO(r['Assignment Date'])).length,
+      mapping:    edi.filter(r=>stageIs(r,'Mapping')).length,
+      testing:    edi.filter(r=>stageIs(r,'Testing')).length,
+      rfp:        edi.filter(r=>stageIs(r,'Ready For Production')).length,
+      ediDate:    latest(edi),
+      forms:      forms.length,
+      fMapping:   forms.filter(r=>stageIs(r,'Mapping')||stageIs(r,'Dataset Validation')).length,
+      fTesting:   forms.filter(r=>stageIs(r,'Testing')).length,
+      fMig:       forms.filter(r=>stageIs(r,'Migration Testing')).length,
+      fProd:      cr.filter(r=>own(r) && isForms(r) && statusIs(r,'Live') && stageIs(r,'Production')).length,
+      formsDate:  latest(forms)};
+    q.load  = q.notStarted + q.dataset + q.mapping + q.testing;   // workbook C = SUM(D:G)
+    q.queue = q.load + q.forms;                                    // workbook Q = C + K
+    // "Total CRs (year)": assigned EDI CRs created in that year, any status
+    q.byYear = years.map(y=>cr.filter(r=>own(r) && !isForms(r) && !!toISO(r['Assignment Date'])
+      && (monthOf(toISO(r['Created Date']))||'').slice(0,4)===y).length);
+    return q;
+  // an analyst whose only in-progress work is Requirements Gathering or Resource
+  // Assignment belongs to the RG table, not this one — no all-zero rows here
+  }).filter(q=>q.queue || q.rfp || q.fProd)
+    .sort((x,y)=>y.queue-x.queue || x.a.localeCompare(y.a));
+
+  // --- requirements gathering (workbook "RG CRs" sheet) ---
+  const rgCrs = active.filter(r=>stageIs(r,'Requirements Gathering'));
+  const rgRows = [...new Set(rgCrs.map(r=>txt(r['Technical Contact'])).filter(Boolean))]
+    .map(a=>{ const mine = rgCrs.filter(r=>txt(r['Technical Contact'])===a);
+      return {a, n: mine.length, date: latest(mine)}; })
+    .sort((x,y)=>y.n-x.n || x.a.localeCompare(y.a));
+  const rgUnassigned = rgCrs.filter(r=>!txt(r['Technical Contact'])).length;
+  // the sheet counted "awaiting assignments" for two named people only
+  const awaiting = active.filter(r=>stageIs(r,'Resource Assignment'));
+  const awaitBy = {};
+  awaiting.forEach(r=>{ const k = txt(r['Technical Contact']) || 'unassigned';
+    awaitBy[k] = (awaitBy[k]||0)+1; });
+  const pendingStart = active.filter(r=>stageIs(r,'Pending Start') && !txt(r['Technical Contact'])).length;
+
+  // --- live queue (workbook row 45) ---
+  const inProd = (r, forms) => stageIs(r,'Production') && isForms(r)===forms;
+  const liveEdi = cr.filter(r=>statusIs(r,'Live') && inProd(r,false));
+  const live = {edi: liveEdi.length,
+    child: liveEdi.filter(r=>txt(r['Technical Contact'])===CHILD_OWNER).length,
+    forms: cr.filter(r=>statusIs(r,'Live') && inProd(r,true)).length,
+    disabled: cr.filter(r=>statusIs(r,'Production Disabled') && inProd(r,false)).length};
+
+  // --- the workbook's headline (row 23): everything the team is holding ---
+  // queue + ready-for-production + awaiting assignment + requirements gathering
+  const rfpTotal = rows.reduce((a,r)=>a+r.rfp, 0);
+  const queueTotal = rows.reduce((a,r)=>a+r.queue, 0);
+  const rgTotal = rgCrs.length;
+  const grandQueue = queueTotal + rfpTotal + awaiting.length + rgTotal;
+  const childInProg = inProg.filter(r=>txt(r['Technical Contact'])===CHILD_OWNER
+    && !isForms(r)).length;
+
+  // --- monthly ledger (workbook rows 25-44) ---
+  // the embed window cuts mid-month, so the month it lands in is itself partial;
+  // start at the first whole month after it
+  const cutM = addMonths(new Date(new Date(asOf+'T00:00:00Z').getTime()
+    - WL_INTAKE_WINDOW*86400000).toISOString().slice(0,7), 1);
+  const months = [...new Set(cr.map(r=>monthOf(toISO(r['Created Date']))).filter(Boolean))]
+    .filter(m=>m>=cutM).sort().slice(-WL_MONTHS);
+  const ledger = months.map(m=>{
+    const made = cr.filter(r=>monthOf(toISO(r['Created Date']))===m);
+    const st = s => made.filter(r=>statusIs(r,s)).length;
+    const row = {m, input: made.length,
+      notStarted: st('Not Started'), inProgress: st('In Progress'), live: st('Live'),
+      onHold: st('On Hold'), blocked: st('Blocked'), cancelled: st('Cancelled'),
+      // netted off below, so cancelled children must not be subtracted twice
+      child: made.filter(r=>txt(r['Technical Contact'])===CHILD_OWNER
+        && !statusIs(r,'Cancelled')).length,
+      mig: made.filter(r=>!isForms(r) && wlMig(r) && !statusIs(r,'Cancelled')).length,
+      forms: made.filter(r=>isForms(r) && !statusIs(r,'Cancelled')).length,
+      formsCanc: made.filter(r=>isForms(r) && statusIs(r,'Cancelled')).length,
+      ffile: cr.filter(r=>monthOf(toISO(r['First Production File']))===m).length,
+      prod: cr.filter(r=>monthOf(toISO(r['Production']))===m).length,
+      prodChild: cr.filter(r=>txt(r['Technical Contact'])===CHILD_OWNER && statusIs(r,'Live')
+        && inProd(r,false) && monthOf(toISO(r['Production']))===m).length};
+    row.net = row.notStarted + row.inProgress + row.live + row.onHold + row.blocked - row.child;
+    row.actual = row.prod - row.prodChild;
+    return row;
+  });
+  // throughput: a month's output against the intake WL_LAG months earlier
+  const netBy = {}; ledger.forEach(r=>netBy[r.m] = r.net);
+  ledger.forEach(r=>{ const base = netBy[addMonths(r.m, -WL_LAG)];
+    r.ratio = base ? r.actual/base : null; });
+
+  // --- calendar quarters (workbook rows 47-55) ---
+  const qmap = {};
+  ledger.forEach(r=>{ const [y,mo] = r.m.split('-').map(Number);
+    const k = y+' Q'+Math.ceil(mo/3);
+    (qmap[k] = qmap[k] || {k, months:0, input:0, output:0});
+    qmap[k].months++; qmap[k].input += r.net; qmap[k].output += r.actual; });
+  const quarters = Object.values(qmap);
+  // the workbook carried two ratios: output against this quarter's own intake
+  // (row 51) and against the previous quarter's (row 52) — work booked in one
+  // quarter mostly lands in the next, so the lagged one is the honest read
+  quarters.forEach((q,i)=>{ const prev = quarters[i-1];
+    q.prevInput = prev ? prev.input : null; });
+
+  const types = [...new Set(cr.map(r=>txt(r['Request Type'])).filter(Boolean))].sort();
+  return {asOf, rows, years, rgRows, rgUnassigned, awaiting: awaiting.length, awaitBy,
+    pendingStart, live, ledger, quarters, months, cutM, types, grandQueue, childInProg,
+    queueTotal, rfpTotal, rgTotal,
+    formsTypes: types.filter(t=>/form/i.test(t)), inProg: inProg.length};
+}
+
+function renderWorkload(){
+  const w = workloadSheet();
+  const today = new Date(w.asOf+'T00:00:00Z');
+  const n = (v, cls='') => `<td class="${v?cls:(cls+' zero').trim()}">${v}</td>`;
+  const capBar = (v, expect) => {
+    const p = expect ? v/expect*100 : 0;
+    const cls = p>150 ? 'hot' : p>100 ? 'over' : '';
+    return `<td class="${cls==='hot'?'bad':cls==='over'?'warn':''}"><span class="capbar"
+      title="${v} of ${expect} expected"><i class="${cls}"
+      style="width:${Math.min(100,p)}%"></i></span>${expect?Math.round(p)+'%':'&mdash;'}</td>`;
+  };
+  // a long gap since the last assignment means the analyst has stopped receiving work
+  const dcell = (iso, cls='') => {
+    if(!iso) return `<td class="${(cls+' zero').trim()}">&mdash;</td>`;
+    const d = daysBetween(iso, today);
+    return `<td class="${cls} ${d>=30?'bad':d>=14?'warn':''}" title="${d} days ago">${iso}</td>`;
+  };
+  const sum = k => w.rows.reduce((a,r)=>a+r[k],0);
+
+  // --- analyst queue -----------------------------------------------------
+  const yrCols = w.years.map(y=>`<th class="grp">${y}</th>`).join('');
+  const queueChips = `<div class="wchips">
+      <div class="wchip" title="queue ${w.queueTotal} + ready for production ${w.rfpTotal} + awaiting assignment ${w.awaiting} + requirements gathering ${w.rgTotal}"><b>${w.grandQueue}</b>current in-progress queue</div>
+      <div class="wchip"><b>${w.queueTotal}</b>queue across ${w.rows.length} analyst${w.rows.length===1?'':'s'}</div>
+      <div class="wchip"><b>${w.childInProg}</b>child CRs in progress</div>
+      <div class="wchip"><b>${w.live.edi}</b>live EDI connections${w.live.child?` &middot; ${w.live.child} child`:''}</div>
+      <div class="wchip"><b>${w.live.forms}</b>live Forms connections</div>
+      <div class="wchip"><b>${w.live.disabled}</b>production disabled</div>
+    </div>`;
+  $('#wl-queue').innerHTML = w.rows.length ? queueChips + `<div class="wscroll"><table class="wtbl">
+    <thead>
+      <tr><th class="lbl"></th><th colspan="2" class="grp">Load</th>
+        <th colspan="6" class="grp">EDI</th><th colspan="6" class="grp">Forms</th>
+        <th colspan="${w.years.length}" class="grp">Assigned CRs</th></tr>
+      <tr><th class="lbl">Analyst</th>
+        <th class="grp">Queue</th><th>vs expected</th>
+        <th class="grp">Not started</th><th>Dataset val.</th><th>Mapping</th><th>Testing</th>
+        <th>Ready for prod</th><th>Last assigned</th>
+        <th class="grp">Open</th><th>Mapping</th><th>Testing</th><th>Migration test</th>
+        <th>Live</th><th>Last assigned</th>${yrCols}</tr>
+    </thead>
+    <tbody>
+      ${w.rows.map(r=>`<tr>
+        <th class="lbl">${esc(r.a)}</th>
+        ${n(r.queue,'grp')}${capBar(r.queue, wlExpect)}
+        ${n(r.notStarted,'grp')}${n(r.dataset)}${n(r.mapping)}${n(r.testing)}${n(r.rfp)}${dcell(r.ediDate)}
+        ${n(r.forms, 'grp'+(r.forms>FORMS_WARN?' warn':''))}${n(r.fMapping)}${n(r.fTesting)}${n(r.fMig)}${n(r.fProd)}${dcell(r.formsDate)}
+        ${r.byYear.map((v,i)=>n(v, i?'':'grp')).join('')}
+      </tr>`).join('')}
+    </tbody>
+    <tfoot><tr class="tot"><th class="lbl">Totals</th>
+      ${n(sum('queue'),'grp')}${capBar(sum('queue'), wlExpect*w.rows.length)}
+      ${n(sum('notStarted'),'grp')}${n(sum('dataset'))}${n(sum('mapping'))}${n(sum('testing'))}${n(sum('rfp'))}<td></td>
+      ${n(sum('forms'),'grp')}${n(sum('fMapping'))}${n(sum('fTesting'))}${n(sum('fMig'))}${n(sum('fProd'))}<td></td>
+      ${w.years.map((_,i)=>n(w.rows.reduce((a,r)=>a+r.byYear[i],0), i?'':'grp')).join('')}
+    </tr></tfoot>
+  </table></div>
+  <div class="hnote">In-progress connections only, split the way the workload sheet splits them.
+    "Not started" is a CR sitting in Dataset Validation that has never been assigned; "Queue" is
+    the four EDI stages plus every open Forms request, measured against the
+    <b>${wlExpect}</b> expected per analyst (amber over 100%, red over 150%). "Last assigned"
+    turns amber after 14 days and red after 30 — nobody has handed them work since.
+    Live Forms and the ${w.years.join(' / ')} columns count CRs of any status, so they include
+    work that has already left the queue.${w.formsTypes.length?` Request type
+    ${w.formsTypes.map(t=>'&ldquo;'+esc(t)+'&rdquo;').join(' / ')} is read as Forms; every other
+    type counts as EDI.`:` No request type in the data reads as Forms, so the Forms columns stay empty.`}</div>`
+    : '<div class="empty">No in-progress connections.</div>';
+
+  // --- requirements gathering -------------------------------------------
+  const rgTot = w.rgRows.reduce((a,r)=>a+r.n,0);
+  const awaitList = Object.entries(w.awaitBy).sort((a,b)=>b[1]-a[1]);
+  $('#wl-rg').innerHTML = `<div class="wchips">
+      <div class="wchip"><b>${rgTot}</b>in requirements gathering</div>
+      <div class="wchip"><b>${w.awaiting}</b>awaiting assignment${awaitList.length?` &middot; ${awaitList.map(([k,v])=>esc(k)+' '+v).join(' &middot; ')}`:''}</div>
+      <div class="wchip"><b>${w.pendingStart}</b>pending start, no analyst</div>
+    </div>` + (w.rgRows.length ? `<div class="wscroll"><table class="wtbl">
+    <thead><tr><th class="lbl">Analyst</th><th class="grp">Active RG CRs</th>
+      <th>vs expected</th><th>Last assigned</th></tr></thead>
+    <tbody>${w.rgRows.map(r=>`<tr><th class="lbl">${esc(r.a)}</th>
+      ${n(r.n,'grp')}${capBar(r.n, wlRgExpect)}${dcell(r.date)}</tr>`).join('')}</tbody>
+    <tfoot><tr class="tot"><th class="lbl">Totals</th>${n(rgTot,'grp')}
+      ${capBar(rgTot, wlRgExpect*w.rgRows.length)}<td></td></tr></tfoot>
+  </table></div>
+  <div class="hnote">Active CRs in Requirements Gathering, against <b>${wlRgExpect}</b> expected each.
+    ${w.rgUnassigned?`${w.rgUnassigned} RG CR${w.rgUnassigned===1?' has':'s have'} no analyst and are not in the table. `:''}
+    "Awaiting assignment" counts every active CR sitting in Resource Assignment, whoever holds it —
+    the sheet only counted two named people.</div>`
+    : '<div class="empty">No active connections in Requirements Gathering.</div>');
+
+  // --- monthly ledger ----------------------------------------------------
+  const L = w.ledger;
+  // the as-of month is only counted up to the report date — flag it as partial
+  const nowM = w.asOf.slice(0,7);
+  const mhead = L.map(r=>`<th${r.m===nowM?` title="partial — only up to ${w.asOf}"`:''}>${
+    r.m.slice(2).replace('-','/')}${r.m===nowM?'*':''}</th>`).join('');
+  // hot = class applied to any non-zero cell (the workbook flagged "Not Started"
+  // in a month at all, however small)
+  const line = (label, key, cls='', hot='') => `<tr${cls?` class="${cls}"`:''}>
+      <th class="lbl">${label}</th>
+      ${L.map(r=>`<td class="${r[key]?hot:'zero'}">${r[key]}</td>`).join('')}
+      <td class="grp">${L.reduce((a,r)=>a+(r[key]||0),0)}</td>
+    </tr>`;
+  const ratioCell = v => v==null ? '<td class="zero">&mdash;</td>'
+    : `<td class="${v<.6?'bad':v<.9?'warn':''}">${Math.round(v*100)}%</td>`;
+  $('#wl-ledger').innerHTML = L.length ? `<div class="wscroll"><table class="wtbl">
+    <thead><tr><th class="lbl">Created in month</th>${mhead}<th class="grp">Total</th></tr></thead>
+    <tbody>
+      ${line('CRs created','input','tot')}
+      ${line('&nbsp;&nbsp;Not started','notStarted','','warn')}
+      ${line('&nbsp;&nbsp;In progress','inProgress')}
+      ${line('&nbsp;&nbsp;Live','live')}
+      ${line('&nbsp;&nbsp;On hold','onHold')}
+      ${line('&nbsp;&nbsp;Blocked','blocked')}
+      ${line('&nbsp;&nbsp;Cancelled','cancelled')}
+      ${line('&nbsp;&nbsp;Child CRs','child')}
+      ${line('Net intake','net','tot')}
+      ${line('Migrations','mig')}
+      ${line('Forms','forms')}
+      ${line('Forms cancelled','formsCanc')}
+    </tbody>
+    <thead><tr><th class="lbl">Produced in month</th>${mhead}<th class="grp">Total</th></tr></thead>
+    <tbody>
+      ${line('First production file','ffile')}
+      ${line('Production date','prod')}
+      ${line('&nbsp;&nbsp;Child CRs','prodChild')}
+      ${line('Net production','actual','tot')}
+      <tr><th class="lbl">Output vs intake ${WL_LAG} mo earlier</th>
+        ${L.map(r=>ratioCell(r.ratio)).join('')}<td class="grp"></td></tr>
+    </tbody>
+  </table></div>
+  <div class="hnote">Each column is a creation month; the status rows are where those CRs stand
+    <i>today</i>, not where they stood then. "Net intake" is everything except cancellations and
+    child CRs — the work that actually had to be delivered. Output is matched against the intake
+    ${WL_LAG} months earlier, so a month under 100% means the team took in more than it cleared
+    (amber under 90%, red under 60%). Intake is only complete from <b>${w.cutM}</b> onward, so the
+    table starts there${L.some(r=>r.m===nowM)?`, and <b>${nowM}*</b> only runs to ${w.asOf}`:''}.</div>`
+    : '<div class="empty">No CRs with a creation date in the data window.</div>';
+
+  // --- quarter summary ---------------------------------------------------
+  const per = (v,m) => m ? Math.round(v/m*10)/10 : 0;
+  const qIn = w.quarters.reduce((a,q)=>a+q.input,0);
+  const qOut = w.quarters.reduce((a,q)=>a+q.output,0);
+  $('#wl-quarter').innerHTML = w.quarters.length ? `<div class="wscroll"><table class="wtbl">
+    <thead><tr><th class="lbl">Quarter</th><th class="grp">Net intake</th><th>Net production</th>
+      <th>Output / intake</th><th>Output / previous intake</th>
+      <th class="grp">Intake / month</th><th>Production / month</th></tr></thead>
+    <tbody>${w.quarters.map(q=>`<tr><th class="lbl">${q.k}${q.months<3?` <small style="font-weight:400;color:var(--ink-soft)">(${q.months} mo)</small>`:''}</th>
+      ${n(q.input,'grp')}${n(q.output)}
+      ${q.input?ratioCell(q.output/q.input):'<td class="zero">&mdash;</td>'}
+      ${q.prevInput?ratioCell(q.output/q.prevInput):'<td class="zero">&mdash;</td>'}
+      ${n(per(q.input,q.months),'grp')}${n(per(q.output,q.months))}</tr>`).join('')}</tbody>
+    <tfoot><tr class="tot"><th class="lbl">Total</th>
+      ${n(qIn,'grp')}${n(qOut)}${ratioCell(qIn ? qOut/qIn : null)}
+      <td></td><td class="grp"></td><td></td></tr></tfoot>
+  </table></div>
+  <div class="hnote">Real calendar quarters over the same window as the ledger; a quarter the data
+    only partly covers is marked with its month count, so its per-month figures stay comparable.
+    Work booked in one quarter mostly lands in the next, so <b>output / previous intake</b> is the
+    fairer read of whether the team kept up &mdash; the workbook carried both.</div>`
+    : '<div class="empty">Not enough months to summarise.</div>';
+}
+
 // ---------- render ----------
 function render(){
   const t = teamStats();
@@ -2971,33 +3341,8 @@ function render(){
   // --- pipeline stage duration over production connections (year + type filtered) ---
   renderStageDur();
 
-  // --- aging distribution (one series; the bad tail is emphasised) ---
-  const bmax = Math.max(1, ...t.buckets.map(b=>b.n));
-  const bcol = l => l==='180+' ? 'var(--red)' : l==='91-180' ? 'var(--amber)' : 'var(--bar)';
-  $('#aging').innerHTML = `<div class="hrows w3">
-    ${t.buckets.map(b=>`<div class="hrow">
-      <span class="hname">${b.label} days</span>
-      <div class="htrack"><div class="hbar" style="width:${Math.max(2,b.n/bmax*100)}%;background:${bcol(b.label)}"
-        title="${b.n} active CRs aged ${b.label} days"></div></div>
-      <span class="hval">${b.n}</span>
-    </div>`).join('')}
-  </div><div class="hnote">Average active CR is ${mean(t.ageVals)}d old · p90 ${quantile(t.ageVals,.9)}d · oldest
-    ${Math.max(0,...t.ageVals)}d. Compare with the ${t.cycMean}d average cycle time — the gap is work that has not finished.</div>`;
-
-  // --- workload: CR load + action items held ---
-  const avg = mean(loads), lmax = Math.max(1, ...loads);
-  const over = t.load.filter(l=>l.n>avg*1.5);
-  $('#workload').innerHTML = t.load.length ? `<div class="hrows">
-    ${t.load.map(l=>`<div class="hrow">
-      <span class="hname">${esc(l.a)}</span>
-      <div class="htrack"><div class="hbar" style="width:${Math.max(2,l.n/lmax*100)}%${l.n>avg*1.5?';background:var(--amber)':''}"
-        title="${esc(l.a)}: ${l.n} active CRs"></div></div>
-      <span class="hval">${l.n}</span>
-      <span class="hsub">${l.ai?`${l.ai} AIs`:'—'}</span>
-    </div>`).join('')}
-  </div><div class="hnote">Average ${avg} CRs per analyst · amber marks anyone over 1.5× the average
-    (${over.length}). "AIs" = open action items pending on them — a CR count alone understates real load.</div>`
-    : '<div class="empty">No analysts with active connections.</div>';
+  // --- the workload sheet, recomputed from the same rows ---
+  renderWorkload();
 
   // --- needs attention ---
   const now = new Date(t.asOf+'T00:00:00Z');
@@ -3111,6 +3456,24 @@ applyTheme(savedTheme==='dark' || savedTheme==='light' ? savedTheme
   : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 $('#themebtn').onclick = () =>
   applyTheme(document.documentElement.dataset.theme==='dark' ? 'light' : 'dark');
+
+// expected-queue targets: the workbook hard-coded 20 EDI / 40 RG, so they stay
+// the defaults, but a manager can retune them without a rebuild
+function bindExpect(sel, key, dflt){
+  const el = $(sel);
+  try{ const s = localStorage.getItem(key); if(s && +s > 0){ el.value = s; } }catch(e){}
+  const apply = () => {
+    const v = Math.max(1, Math.round(+el.value || dflt));
+    el.value = v;
+    if(key==='dashExpectEDI') wlExpect = v; else wlRgExpect = v;
+    try{ localStorage.setItem(key, String(v)); }catch(e){}
+    renderWorkload();
+  };
+  el.onchange = apply;
+  apply();
+}
+bindExpect('#wexp', 'dashExpectEDI', wlExpect);
+bindExpect('#wrgexp', 'dashExpectRG', wlRgExpect);
 
 // ---------- upload ----------
 // every column this page reads, per report, as groups of accepted spellings

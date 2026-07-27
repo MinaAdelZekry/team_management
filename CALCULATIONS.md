@@ -5,6 +5,9 @@ Analyst Dashboard (`index.html`) and the iSolved Dashboard (`isolved.html`), bot
 `build_dashboard.py`. The two pages run identical code; a single `ROLE` constant decides which
 CR-sheet column each page groups by.
 
+§12 covers the workload-sheet sections of the Team Overview (`team.html`), which is built from
+the same data by the same script.
+
 ---
 
 ## 1. Data sources
@@ -246,3 +249,145 @@ Mapping → Testing → Ready for Production → Production.
 A page's dropdown contains the union of: connection assignees, production assignees, OE assignees,
 resolved-CR contacts of open AIs, and AI requestors who are also contacts in the page's role.
 Sorted with people who have active connections first, then alphabetically.
+
+---
+
+## 12. Workload sheet (Team Overview)
+
+Four sections of `team.html` — *Analyst queue*, *Requirements gathering queue*, *Monthly ledger*
+and *Quarter summary* — reproduce the **New Orders Assignments – WorkLoad Sheet** workbook from the
+CR report itself, instead of from COUNTIFS formulas over an external link.
+
+### 12.1 Source-column mapping
+
+The workbook addressed one fixed column layout through an external reference (`[1]EDI!`):
+
+| Workbook | Report column | Used for |
+|---|---|---|
+| `I` | `Request Type` | EDI / Forms split |
+| `L` | `Assignment Date` | blank = "not started" |
+| `N`, `P` | `Stage` | every stage test |
+| `O` | `Migration` | migration flag |
+| `Q` | `Status` | every status test |
+| `R` | `Created Date` | monthly intake |
+| `S` | `Technical Contact` | the roster |
+| `T` | `Assignment Date` | latest assignment |
+| `W`, `Y` | `First Production File` | monthly output |
+| `AC` | `Production` | monthly output |
+
+Two mappings are inferences, because the workbook only carried column letters:
+
+- **`L` = Assignment Date.** It gates both the "Not started" split (a CR in Dataset Validation with
+  no `L`) and "Total CRs (year)" (`L` non-blank), so it is the column that records that a CR was
+  handed to somebody.
+- **`N` and `P` both = Stage.** The workbook read Forms stages out of `P` and EDI stages out of
+  `N`; the CR report carries a single `Stage` column, which is used for both.
+
+**Request type** is matched as a regex, not equality: a type containing "form" counts as Forms,
+everything else as EDI. The section footnote names the types that landed in the Forms bucket.
+
+**Migrations** use the report's own `Migration` column (the same `isMig` rule as the rest of the
+page). The workbook instead tested the partner name against
+`{"Everything Benefits", "eBenefits Network"}`, which would miss any later migration programme.
+
+### 12.2 Analyst queue
+
+Per analyst, over CRs with status **In Progress** only (the workbook's rule):
+
+- **Not started** — EDI, Stage = Dataset Validation, no Assignment Date.
+- **Dataset val.** — EDI, Stage = Dataset Validation, with an Assignment Date.
+- **Mapping / Testing / Ready for prod** — EDI at that stage.
+- **Queue** = Not started + Dataset val. + Mapping + Testing + all open Forms
+  (`C = SUM(D:G)` and `Q = C + K` in the workbook). Ready-for-production is *not* in the queue.
+- **Forms columns** — Open (all in-progress Forms), Mapping (Stage = Mapping **or** Dataset
+  Validation), Testing, Migration test (Stage = Migration Testing), Live (status Live, Stage =
+  Production — any status, so it is not part of the queue).
+- **Last assigned** — newest Assignment Date among those CRs; amber at 14 days, red at 30.
+- **Assigned CRs \<year\>** — CRs with an Assignment Date created in that year, any status. Only the
+  two most recent years present in the data are shown.
+- **vs expected** — Queue ÷ expected queue (default **20**, editable in the heading and remembered
+  in `localStorage`). Amber over 100%, red over 150%.
+- The **Forms Open** cell turns amber above `FORMS_WARN` (3), reproducing the workbook's
+  conditional-format rule on column K.
+
+An analyst whose only in-progress work is Requirements Gathering or Resource Assignment is left out
+of this table; they appear in §12.3 instead.
+
+Chips above the table carry the workbook's summary cells:
+
+| Chip | Workbook | Definition |
+|---|---|---|
+| Current in-progress queue | `C23` | queue + ready-for-production + awaiting assignment + RG |
+| Queue across N analysts | `Q22` | the table's Queue total |
+| Child CRs in progress | `E23` | in-progress EDI CRs booked to `CHILD_OWNER` |
+| Live EDI / child / Forms / production disabled | `C45`, `E45`, `G45`, `I45` | the "Total Live Queue" row |
+
+### 12.3 Requirements gathering queue
+
+Active CRs (any active status) with Stage = Requirements Gathering, per analyst, against an expected
+queue of **40**. Alongside it: CRs awaiting assignment (Stage = Resource Assignment, **whoever**
+holds them — the workbook counted two hard-coded names), and unassigned CRs in Pending Start.
+
+The *Analyst queue* card also carries the workbook's "Total Live Queue" row: live EDI connections
+(and how many are child CRs), live Forms connections, and connections with status
+`Production Disabled`.
+
+### 12.4 Monthly ledger
+
+One column per **creation month**; the status rows are where those CRs stand *today*.
+
+- **CRs created** = every CR created that month, then split by current status.
+- **Child CRs** = created that month and booked to `CHILD_OWNER` (`Dina Medhat`), excluding
+  cancelled ones so the subtraction below cannot double-count.
+- **Net intake** = Not started + In progress + Live + On hold + Blocked − Child CRs — i.e. work
+  that actually had to be delivered.
+- **Migrations / Forms / Forms cancelled** = created that month, non-cancelled (cancelled for the
+  last), of that kind.
+- **First production file / Production date** = CRs whose respective date falls in that month.
+- **Net production** = production-dated CRs that month, minus the child CRs among them.
+- **Output vs intake N mo earlier** = net production ÷ the net intake `WL_LAG` (3) months back.
+  Amber under 90%, red under 60%.
+- A non-zero **Not started** cell is highlighted amber, reproducing the workbook's
+  conditional-format rule on row 27.
+
+**Window.** Only ~400 days of intake are embedded, so months before that would under-count. The
+ledger starts at the first *whole* month after that boundary and shows at most `WL_MONTHS` (18).
+The as-of month is marked `*` — it only runs to the report date.
+
+### 12.5 Quarter summary
+
+Real calendar quarters over the ledger's months: net intake, net production, and both divided by the
+quarter's month count. A quarter the window only partly covers is labelled with its month count so
+the per-month figures stay comparable.
+
+Two ratios, as the workbook carried:
+
+- **Output / intake** (row 51) — the quarter's production against its own intake.
+- **Output / previous intake** (row 52) — against the *previous* quarter's intake. Work booked in
+  one quarter mostly lands in the next, so this is the fairer read of whether the team kept up.
+
+The workbook divided every quarter by a literal 3; the page divides by the quarter's actual month
+count, so a partial quarter is not understated.
+
+### 12.6 Workbook errors not carried over
+
+The live version deliberately differs from the spreadsheet where the spreadsheet was wrong:
+
+- totals summed rows 3:17 while the roster ran to row 20, silently dropping three analysts;
+- the first month's `Total` omitted `Not Started` although every other month included it;
+- every 2026 production column re-counted **January** (`MONTH(...)=1`), so Feb–Jun 2026 output all
+  showed the same number;
+- the first "First Production File" column read a different source column than the other seventeen;
+- the output-vs-intake lag was 3 months for the first four columns and then collapsed to 1;
+- quarter ranges overlapped (`Q4 = SUM(S34:U34)` reused a Q3 month), and every quarter was divided
+  by a literal 3 even when it held fewer months;
+- "awaiting assignments" and "child CRs" were hard-coded to two analyst names;
+- on the `Dates` helper sheet, **Mai Atef's** latest-assignment formula read *Hady Sherif's* column
+  (`AA`) — Mai Atef had no column of their own — and Hady Sherif's own range was off by one row
+  (`AA3:AA49` where every other analyst used `4:50`);
+- `Sheet1` was a scratch copy of five former team members whose row labels did not match the names
+  inside its own formulas.
+
+**Not carried over by choice:** `M23` (`= M22 - N22`, Forms in testing minus Forms in migration
+testing). Both operands are already columns in the analyst-queue table, so the subtraction adds
+nothing the reader cannot see.
