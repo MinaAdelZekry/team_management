@@ -1057,6 +1057,11 @@ __NAV__
   <h2 id="connstoggle" style="cursor:pointer;user-select:none"><span id="connscaret">&#9662;</span> In-progress connections <span id="connscount"></span></h2>
   <div id="conns"></div>
 
+  <div id="onholdsec" style="display:none">
+    <h2 id="onholdtoggle" style="cursor:pointer;user-select:none"><span id="onholdcaret">&#9656;</span> On-hold connections <span id="onholdcount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; set aside from the active list &middot; click to expand</span></h2>
+    <div id="onhold" style="display:none"></div>
+  </div>
+
   <h2 id="othertoggle" style="cursor:pointer;user-select:none"><span id="othercaret">&#9656;</span> Late action items <span id="othercount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; on this __WHO__'s other CRs, requested by them, or where they're the responsible party &middot; click to expand</span></h2>
   <div id="otherais" style="display:none"></div>
 
@@ -1552,24 +1557,29 @@ function initSelectors(){
 }
 
 function render(){
-  const conns = DATA.connections.filter(c=>c.tc===curEmp)
+  const allConns = DATA.connections.filter(c=>c.tc===curEmp)
       .sort((a,b)=>(b.idleDays??-1)-(a.idleDays??-1));
+  // on-hold connections are set aside from the active list into their own
+  // collapsible section; workload totals below still count every connection
+  const held  = allConns.filter(c=>c.status==='On Hold');
+  const conns = allConns.filter(c=>c.status!=='On Hold');
   const oes = (DATA.oes||[]).filter(o=>o.tc===curEmp)
       .sort((a,b)=>String(a.pysd||'9999').localeCompare(String(b.pysd||'9999')));
   const months = [...new Set(DATA.production.map(p=>p.month))].sort();
   const thisMonth = months.at(-1);
   const mine = DATA.production.filter(p=>p.tc===curEmp);
   const others = otherFor(curEmp);
-  const openAIs = conns.reduce((s,c)=>s+(c.ai?c.ai.count:0),0);
+  const openAIs = allConns.reduce((s,c)=>s+(c.ai?c.ai.count:0),0);
+  // the stage rail reflects the active list only (on-hold work is set aside)
   const stageCounts = STAGES.map((_,i)=>conns.filter(c=>stageIdx(c.stage)===i).length);
   const stageSub = STAGES.map((s,i)=>stageCounts[i]?`${stageCounts[i]} ${s.toLowerCase()}`:null).filter(Boolean).join(' · ');
   const oeStageCounts = OE_STAGES.map((_,i)=>oes.filter(o=>oeStageIdx(o.stage)===i).length);
   const oeSub = OE_STAGES.map((s,i)=>oeStageCounts[i]?`${oeStageCounts[i]} ${s.toLowerCase()}`:null).filter(Boolean).join(' · ');
-  const myResp = conns.reduce((s,c)=>s+(c.ai?c.ai.items.filter(i=>i.on===curEmp).length:0),0);
+  const myResp = allConns.reduce((s,c)=>s+(c.ai?c.ai.items.filter(i=>i.on===curEmp).length:0),0);
 
   $('#kpis').innerHTML = [
     [conns.length,'Active connections', stageSub],
-    [conns.filter(c=>c.status==='On Hold').length,'On hold'],
+    [held.length,'On hold'],
     [openAIs,'Open action items', myResp?`${myResp} pending on ${ROLE==='tc'?'the Analyst':'the iSolved contact'}`:''],
     [oes.length,'In-progress OEs', oeSub],
     [mine.filter(p=>p.month===thisMonth).length,'Production this month'],
@@ -1578,6 +1588,13 @@ function render(){
   $('#conns').innerHTML = conns.length ? conns.map(connCard).join('')
       : '<div class="empty">No in-progress connections for this employee.</div>';
   $('#connscount').textContent = `(${conns.length})`;
+
+  // show the on-hold section only when there are on-hold connections
+  $('#onholdsec').style.display = held.length ? '' : 'none';
+  if(held.length){
+    $('#onhold').innerHTML = held.map(connCard).join('');
+    $('#onholdcount').textContent = `(${held.length})`;
+  }
   $('#othercount').textContent = `(${others.length})`;
   $('#otherais').innerHTML = others.length ? aiTable(others)
       : '<div class="empty">No late action items for this employee.</div>';
@@ -2105,6 +2122,7 @@ function toggler(h2, body, caret, open){
   $(h2).onclick = () => toggler(h2, body, caret, !open);
 }
 toggler('#othertoggle', '#otherais', '#othercaret', false);
+toggler('#onholdtoggle', '#onhold', '#onholdcaret', false);
 toggler('#connstoggle', '#conns', '#connscaret', true);
 toggler('#oestoggle', '#oes', '#oescaret', true);
 // light / dark mode: toggle in the header, remembered in this browser and
