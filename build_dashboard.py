@@ -52,6 +52,10 @@ PBKDF2_ITER = 200000
 # gets their own encrypted page containing only their rows.
 ANALYST_PW_FILE = "analyst_passwords.json"
 
+# per-analyst pages are written here, next to the shared views, one file per
+# person named after their slug (the folder already says "analyst")
+ANALYST_DIR = "analysts"
+
 
 def resolve_password():
     pw = os.environ.get("DASH_PASSWORD")
@@ -729,16 +733,22 @@ def main():
         return
     in_data = {_txt(r.get("Technical Contact")) for r in full_raw["cr"]}
     in_data.discard("")
+    # the per-analyst pages live in their own folder so the repo root stays the
+    # three shared views; the folder already says "analyst", so the file is just
+    # the person's slug
+    analyst_dir = os.path.join(os.path.dirname(out), ANALYST_DIR)
+    os.makedirs(analyst_dir, exist_ok=True)
     for name in sorted(analyst_pws):
         sub = analyst_slice(raw, name)
-        fn = os.path.join(os.path.dirname(out), f"analyst-{slugify(name)}.html")
+        fn = os.path.join(analyst_dir, f"{slugify(name)}.html")
         with open(fn, "w", encoding="utf-8") as f:
             f.write(wrap_encrypted(
                 page("tc", name, "analyst",
                      json.dumps(sub, ensure_ascii=False), "", owner=name),
                 name, analyst_pws[name]))
+        rel = f"{ANALYST_DIR}/{os.path.basename(fn)}"
         flag = "" if name in in_data else "  <-- WARNING: name not found in the CR report"
-        print(f"  {os.path.basename(fn)}: {len(sub['cr'])} CRs, {len(sub['ai'])} AIs, "
+        print(f"  {rel}: {len(sub['cr'])} CRs, {len(sub['ai'])} AIs, "
               f"{len(sub['oe'])} OEs, {len(sub['ms'])} MS for {name}{flag}")
     missing = sorted(in_data - set(analyst_pws))
     if missing:
@@ -2585,9 +2595,6 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
     <div id="cnote" class="hnote"></div>
   </div>
 
-  <h2>Pipeline <span class="note">&middot; where active connections sit, and how long they have been sitting there</span></h2>
-  <div class="card" id="pipeline"></div>
-
   <h2>Needs attention</h2>
   <div class="risks" id="risks"></div>
 </div>
@@ -2707,16 +2714,6 @@ function teamStats(){
     return a ? {r, d: daysBetween(a, today)} : null; }).filter(Boolean);
   const aged90 = ages.filter(x=>x.d>90), aged180 = ages.filter(x=>x.d>180);
 
-  // ---- how long active work has sat in its CURRENT stage ----
-  const inStage = STAGES.map(()=>[]);
-  for(const r of active){
-    const ds = STAGE_COLS.map(c=>toISO(r[c])).filter(Boolean).sort();
-    const since = ds.length ? ds.at(-1) : null;
-    if(since) inStage[stageIdx(txt(r['Stage']))].push(daysBetween(since, today));
-  }
-  const stageCounts = STAGES.map((_,i)=>active.filter(r=>stageIdx(txt(r['Stage']))===i).length);
-  const stageAvg = inStage.map(v=>v.length?mean(v):null);
-
   // ---- action items: staleness, who holds them, who blocks us ----
   const aiRows = ai.map(r=>{
     const bot = /^system\s*admin$/i.test(txt(r['LastCommentOwner']));
@@ -2760,7 +2757,7 @@ function teamStats(){
   const out2026 = win.slice(-6).map(m=>prod.filter(p=>p.m===m).length);
   const avgOut = out2026.length ? out2026.reduce((a,b)=>a+b,0)/out2026.length : 0;
 
-  return {asOf, cr, active, unassigned, stalled, analysts, series, win, load, stageCounts, stageAvg,
+  return {asOf, cr, active, unassigned, stalled, analysts, series, win, load,
     prod, ages, aged90, aged180, stale90, ext, internal, byCarrier, holdRank,
     stalledTest, inTesting, noAI, mig, migActive, oeActive, oePast, thisMonth, prevMonth,
     cycMean: mean(cycAll), cycP90: quantile(cycAll, .9), cycTrend, avgOut,
@@ -3323,20 +3320,6 @@ function render(){
       : rAvg<pAvg ? `faster by ${Math.round((pAvg-rAvg)/pAvg*100)}%` : 'flat')
       + `. Measured only on CRs that finished — work still stuck is not in this number.`
     : '';
-
-  // --- pipeline: count + how long they have sat in that stage ---
-  const pmax = Math.max(1, ...t.stageCounts);
-  const prows = STAGES.map((s,i)=>[s,i,t.stageCounts[i]]).filter(([,,n])=>n);
-  $('#pipeline').innerHTML = prows.length ? `<div class="hrows">
-    ${prows.map(([s,i,n])=>`<div class="hrow">
-      <span class="hname"><i style="background:${STAGE_COLORS[i]}"></i>${s}</span>
-      <div class="htrack"><div class="hbar" style="width:${Math.max(2,n/pmax*100)}%;background:${STAGE_COLORS[i]}"
-        title="${n} active connections in ${s}"></div></div>
-      <span class="hval">${n} <small style="color:var(--ink-soft);font-weight:400">${pct(n,t.active.length)}%</small></span>
-      <span class="hsub">${t.stageAvg[i]!=null?`${t.stageAvg[i]}d in stage`:'—'}</span>
-    </div>`).join('')}
-  </div><div class="hnote">"In stage" = average days since the CR last moved. The biggest pile-up is
-    ${prows.sort((a,b)=>b[2]-a[2])[0][0]} with ${prows[0][2]} CRs.</div>` : '<div class="empty">No active connections.</div>';
 
   // --- pipeline stage duration over production connections (year + type filtered) ---
   renderStageDur();
