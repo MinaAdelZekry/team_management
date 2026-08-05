@@ -250,6 +250,21 @@ A page's dropdown contains the union of: connection assignees, production assign
 resolved-CR contacts of open AIs, and AI requestors who are also contacts in the page's role.
 Sorted with people who have active connections first, then alphabetically.
 
+### Deep linking
+
+`index.html#emp=<name>` opens the analyst page already showing that person — this is what the
+analyst names in the Team Overview's workload tables link to (§12.2, §12.3). The name is matched
+against the dropdown case-insensitively, exact first then as a substring, so it survives a partial
+or URL-encoded name.
+
+- The link applies **on first load only** (`curEmp` is null exactly once), so a later re-render —
+  after an upload, say — never drags the viewer back to the linked person.
+- `hashchange` is also followed, so the browser's back/forward buttons work after arriving from the
+  team page.
+- Ignored on a single-analyst page, which only ever holds its owner's rows.
+- A name that matches nobody falls back to the first person in the dropdown, whose name is then
+  visible in the selector.
+
 ---
 
 ## 12. Workload sheet (Team Overview)
@@ -314,7 +329,8 @@ Per analyst, over CRs with status **In Progress** only (the workbook's rule):
   conditional-format rule on column K.
 
 An analyst whose only in-progress work is Requirements Gathering or Resource Assignment is left out
-of this table; they appear in §12.3 instead.
+of this table; they appear in §12.3 instead. Every analyst name in this table and in §12.3 links to
+`index.html#emp=<name>`, which opens the analyst dashboard on that person (§11, *Deep linking*).
 
 Chips above the table carry the workbook's summary cells:
 

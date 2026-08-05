@@ -1550,6 +1550,21 @@ function dateChips(){
     return `<span class="dchip ${idleCls(age)}" title="${age} working day${age===1?'':'s'} old">${k} <b>${v}</b></span>`;
   }).join('');
 }
+// deep link: the team overview links here as index.html#emp=Some%20Name, so a
+// name in its tables opens this page already showing that person. Ignored on a
+// single-analyst page, which only ever holds its owner's rows.
+function hashEmp(){
+  if(OWNER) return null;
+  const m = /(?:^|[#&])emp=([^&]*)/.exec(location.hash || '');
+  if(!m) return null;
+  let want = '';
+  try{ want = decodeURIComponent(m[1].replace(/\+/g,' ')); }catch(e){ want = m[1]; }
+  want = want.trim().toLowerCase();
+  if(!want) return null;
+  return DATA.employees.find(x=>x.toLowerCase()===want)
+      || DATA.employees.find(x=>x.toLowerCase().includes(want)) || null;
+}
+
 function initSelectors(){
   $('#gen').innerHTML = dateChips();
   const activeCounts = {};
@@ -1560,6 +1575,9 @@ function initSelectors(){
   });
   $('#emplist').innerHTML = emps.map(e=>
     `<option value="${e}">${activeCounts[e]?`${activeCounts[e]} active`:''}</option>`).join('');
+  // a name in the URL wins on first load only: curEmp is null exactly once, so a
+  // later re-init (after an upload) keeps whoever the viewer had selected
+  if(curEmp === null){ const linked = hashEmp(); if(linked) curEmp = linked; }
   if(!emps.includes(curEmp)) curEmp = emps[0];
   $('#emp').value = curEmp;
   const months = [...new Set(DATA.production.map(p=>p.month))].sort();
@@ -2285,6 +2303,14 @@ $('#files').onchange = async e => {
   }catch(err){ msg.className='err'; msg.textContent='Update failed: '+err.message; }
   e.target.value='';
 };
+
+// follow #emp= changes within the session too (browser back/forward after
+// arriving from the team overview, or a second link clicked on this page)
+addEventListener('hashchange', () => {
+  if(!DATA) return;
+  const linked = hashEmp();
+  if(linked && linked !== curEmp){ curEmp = linked; $('#emp').value = curEmp; render(); }
+});
 
 restoreSaved().catch(()=>{}).then(()=>{
   initSelectors(); render();
@@ -3120,6 +3146,9 @@ function renderWorkload(){
       title="${d} working day${d===1?'':'s'} ago (${daysBetween(iso, today)} calendar)">${iso}</td>`;
   };
   const sum = k => w.rows.reduce((a,r)=>a+r[k],0);
+  // the analyst dashboard reads #emp= on load and opens on that person
+  const who = name => `<a class="lnk" href="index.html#emp=${encodeURIComponent(name)}"
+    title="Open ${esc(name)} in the analyst dashboard">${esc(name)}</a>`;
 
   // --- analyst queue -----------------------------------------------------
   const yrCols = w.years.map(y=>`<th class="grp">${y}</th>`).join('');
@@ -3145,7 +3174,7 @@ function renderWorkload(){
     </thead>
     <tbody>
       ${w.rows.map(r=>`<tr>
-        <th class="lbl">${esc(r.a)}</th>
+        <th class="lbl">${who(r.a)}</th>
         ${n(r.queue,'grp')}${capBar(r.queue, wlExpect)}
         ${n(r.notStarted,'grp')}${n(r.dataset)}${n(r.mapping)}${n(r.testing)}${n(r.rfp)}${dcell(r.ediDate)}
         ${n(r.forms, 'grp'+(r.forms>FORMS_WARN?' warn':''))}${n(r.fMapping)}${n(r.fTesting)}${n(r.fMig)}${n(r.fProd)}${dcell(r.formsDate)}
@@ -3181,7 +3210,7 @@ function renderWorkload(){
     </div>` + (w.rgRows.length ? `<div class="wscroll"><table class="wtbl">
     <thead><tr><th class="lbl">Analyst</th><th class="grp">Active RG CRs</th>
       <th>vs expected</th><th>Last assigned</th></tr></thead>
-    <tbody>${w.rgRows.map(r=>`<tr><th class="lbl">${esc(r.a)}</th>
+    <tbody>${w.rgRows.map(r=>`<tr><th class="lbl">${who(r.a)}</th>
       ${n(r.n,'grp')}${capBar(r.n, wlRgExpect)}${dcell(r.date)}</tr>`).join('')}</tbody>
     <tfoot><tr class="tot"><th class="lbl">Totals</th>${n(rgTot,'grp')}
       ${capBar(rgTot, wlRgExpect*w.rgRows.length)}<td></td></tr></tfoot>
