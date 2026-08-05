@@ -320,7 +320,8 @@ page). The workbook instead tested the partner name against
 
 ### 12.2 Analyst queue
 
-Per analyst, over CRs with status **In Progress** only (the workbook's rule):
+Per analyst, over CRs with status **In Progress** only (the workbook's rule) — so `Blocked`,
+`On Hold` and `Not Started` are all outside this table by construction:
 
 - **Not started** — EDI, Stage = Dataset Validation, no Assignment Date.
 - **Dataset val.** — EDI, Stage = Dataset Validation, with an Assignment Date.
@@ -356,9 +357,15 @@ Chips above the table carry the workbook's summary cells:
 
 ### 12.3 Requirements gathering queue
 
-Active CRs (any active status) with Stage = Requirements Gathering, per analyst, against an expected
-queue of **40**. Alongside it: CRs awaiting assignment (Stage = Resource Assignment, **whoever**
-holds them — the workbook counted two hard-coded names), and unassigned CRs in Pending Start.
+Active CRs with Stage = Requirements Gathering, per analyst, against an expected queue of **40**.
+Alongside it: CRs awaiting assignment (Stage = Resource Assignment, **whoever** holds them — the
+workbook counted two hard-coded names), and unassigned CRs in Pending Start.
+
+**`Blocked` is excluded from all three.** A blocked CR is active but nobody is moving it, so it is
+not part of a queue — the same reasoning that sets blocked work aside on the analyst page (*Paused
+connections*, §1). The footnote reports how many were left out. `On Hold` and `Not Started` still
+count here; "pending start, no analyst" would be empty otherwise, since those CRs are Not Started
+by definition.
 
 The *Analyst queue* card also carries the workbook's "Total Live Queue" row: live EDI connections
 (and how many are child CRs), live Forms connections, and connections with status

@@ -3011,8 +3011,14 @@ const addMonths = (m, n) => { const [y,mo] = m.split('-').map(Number);
 function workloadSheet(){
   const cr = RAW.cr || [];
   const asOf = RAW.dates.cr || RAW.generated;
-  const active = cr.filter(r=>ACTIVE.has(txt(r['Status'])));
+  // blocked work is active but nobody is moving it, so it is not part of any
+  // queue: the analyst-queue table already matches "In Progress" strictly, and
+  // the RG / awaiting / pending-start counts below drop it here
+  const active = cr.filter(r=>ACTIVE.has(txt(r['Status'])) && !statusIs(r,'Blocked'));
   const inProg = cr.filter(r=>statusIs(r,'In Progress'));
+  const blockedOut = cr.filter(r=>statusIs(r,'Blocked')
+    && ['Requirements Gathering','Resource Assignment','Pending Start']
+       .some(s=>stageIs(r,s))).length;
   const latest = list => { const ds = list.map(r=>toISO(r['Assignment Date'])).filter(Boolean).sort();
     return ds.length ? ds[ds.length-1] : null; };
 
@@ -3130,7 +3136,7 @@ function workloadSheet(){
   const types = [...new Set(cr.map(r=>txt(r['Request Type'])).filter(Boolean))].sort();
   return {asOf, rows, years, rgRows, rgUnassigned, awaiting: awaiting.length, awaitBy,
     pendingStart, live, ledger, quarters, months, cutM, types, grandQueue, childInProg,
-    queueTotal, rfpTotal, rgTotal,
+    queueTotal, rfpTotal, rgTotal, blockedOut,
     formsTypes: types.filter(t=>/form/i.test(t)), inProg: inProg.length};
 }
 
@@ -3197,7 +3203,7 @@ function renderWorkload(){
       ${w.years.map((_,i)=>n(w.rows.reduce((a,r)=>a+r.byYear[i],0), i?'':'grp')).join('')}
     </tr></tfoot>
   </table></div>
-  <div class="hnote">In-progress connections only, split the way the workload sheet splits them.
+  <div class="hnote">In-progress connections only &mdash; blocked and on-hold work is not counted.
     "Not started" is a CR sitting in Dataset Validation that has never been assigned; "Queue" is
     the four EDI stages plus every open Forms request, measured against the
     <b>${wlExpect}</b> expected per analyst (amber over 100%, red over 150%). "Last assigned"
@@ -3227,7 +3233,8 @@ function renderWorkload(){
   <div class="hnote">Active CRs in Requirements Gathering, against <b>${wlRgExpect}</b> expected each.
     ${w.rgUnassigned?`${w.rgUnassigned} RG CR${w.rgUnassigned===1?' has':'s have'} no analyst and are not in the table. `:''}
     "Awaiting assignment" counts every active CR sitting in Resource Assignment, whoever holds it —
-    the sheet only counted two named people.</div>`
+    the sheet only counted two named people. Blocked CRs are left out of all three counts${
+      w.blockedOut?` (${w.blockedOut} excluded)`:''} — they are active, but nobody is moving them.</div>`
     : '<div class="empty">No active connections in Requirements Gathering.</div>');
 
   // --- monthly ledger ----------------------------------------------------
