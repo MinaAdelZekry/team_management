@@ -26,6 +26,19 @@ Data reaches the page two ways:
   Files are auto-recognized by the columns above; unrecognized files are skipped with a message.
   A partial upload keeps the other reports from the previous data.
 
+### Paused connections
+
+A CR whose status is **`On Hold` or `Blocked`** is still active, but nobody is moving it. Both are
+set aside from the analyst page's in-progress list into the collapsible *On-hold & blocked
+connections* section, so:
+
+- the **Active connections** KPI and the **stage rail** count in-progress work only;
+- the set-aside count is one KPI with an `N on hold · M blocked` breakdown, and each card keeps its
+  own status chip (blocked is red, on hold is muted);
+- the copyable report splits the same three ways;
+- workload totals, production and stage-duration figures further down the page are unaffected —
+  they still count every connection.
+
 ### Page role
 
 - `index.html`: person = CR `Technical Contact` / OE `TechnicalContact` (the analyst).

@@ -1068,7 +1068,7 @@ __NAV__
   <div id="conns"></div>
 
   <div id="onholdsec" style="display:none">
-    <h2 id="onholdtoggle" style="cursor:pointer;user-select:none"><span id="onholdcaret">&#9656;</span> On-hold connections <span id="onholdcount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; set aside from the active list &middot; click to expand</span></h2>
+    <h2 id="onholdtoggle" style="cursor:pointer;user-select:none"><span id="onholdcaret">&#9656;</span> On-hold &amp; blocked connections <span id="onholdcount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; set aside from the in-progress list &middot; click to expand</span></h2>
     <div id="onhold" style="display:none"></div>
   </div>
 
@@ -1111,6 +1111,9 @@ const STAGE_COLORS = Array.from({length:8}, (_,i)=>`var(--s${i})`);
 const STAGE_COLS = ["Created Date","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready For Production","Production"];
 const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
+// active, but nobody is moving them right now: set aside from the in-progress
+// list into their own section so the active count means work actually running
+const PAUSED = new Set(["On Hold","Blocked"]);
 const MS = {"Requirements Gathering":"RG","Resource Assignment":"RA","Dataset Validation":"DV",
   "Mapping":"Mapping","Testing":"Testing","Ready For Production":"Ready for Prod",
   "Production":"Production","First Test File":"First test file","First Production File":"First prod file"};
@@ -1587,10 +1590,12 @@ function initSelectors(){
 function render(){
   const allConns = DATA.connections.filter(c=>c.tc===curEmp)
       .sort((a,b)=>(b.idleDays??-1)-(a.idleDays??-1));
-  // on-hold connections are set aside from the active list into their own
+  // paused connections are set aside from the active list into their own
   // collapsible section; workload totals below still count every connection
-  const held  = allConns.filter(c=>c.status==='On Hold');
-  const conns = allConns.filter(c=>c.status!=='On Hold');
+  const held  = allConns.filter(c=>PAUSED.has(c.status));
+  const conns = allConns.filter(c=>!PAUSED.has(c.status));
+  const onHold = held.filter(c=>c.status==='On Hold').length;
+  const blocked = held.length - onHold;
   const oes = (DATA.oes||[]).filter(o=>o.tc===curEmp)
       .sort((a,b)=>String(a.pysd||'9999').localeCompare(String(b.pysd||'9999')));
   const months = [...new Set(DATA.production.map(p=>p.month))].sort();
@@ -1598,7 +1603,7 @@ function render(){
   const mine = DATA.production.filter(p=>p.tc===curEmp);
   const others = otherFor(curEmp);
   const openAIs = allConns.reduce((s,c)=>s+(c.ai?c.ai.count:0),0);
-  // the stage rail reflects the active list only (on-hold work is set aside)
+  // the stage rail reflects the active list only (paused work is set aside)
   const stageCounts = STAGES.map((_,i)=>conns.filter(c=>stageIdx(c.stage)===i).length);
   const stageSub = STAGES.map((s,i)=>stageCounts[i]?`${stageCounts[i]} ${s.toLowerCase()}`:null).filter(Boolean).join(' · ');
   const oeStageCounts = OE_STAGES.map((_,i)=>oes.filter(o=>oeStageIdx(o.stage)===i).length);
@@ -1607,7 +1612,8 @@ function render(){
 
   $('#kpis').innerHTML = [
     [conns.length,'Active connections', stageSub],
-    [held.length,'On hold'],
+    [held.length,'On hold / blocked',
+      [onHold?`${onHold} on hold`:'', blocked?`${blocked} blocked`:''].filter(Boolean).join(' · ')],
     [openAIs,'Open action items', myResp?`${myResp} pending on ${ROLE==='tc'?'the Analyst':'the iSolved contact'}`:''],
     [oes.length,'In-progress OEs', oeSub],
     [mine.filter(p=>p.month===thisMonth).length,'Production this month'],
@@ -2009,7 +2015,10 @@ function buildReport(){
   const L = [];
   L.push(`CONNECTIVITY REPORT — ${curEmp}`);
   L.push(`Data as of ${dataDates(', ')} · wd = working days (${WEEKEND_LABEL} excluded)`);
-  L.push(`${conns.length} in-progress connections · ${conns.filter(c=>c.status==='On Hold').length} on hold · ${openAIs} open action items · ${others.length} open AIs on other CRs · ${sendingOes.length} OEs sending file`);
+  // same split as the page: on-hold and blocked are not "in progress"
+  const nHold = conns.filter(c=>c.status==='On Hold').length;
+  const nBlocked = conns.filter(c=>c.status==='Blocked').length;
+  L.push(`${conns.length - nHold - nBlocked} in-progress connections · ${nHold} on hold · ${nBlocked} blocked · ${openAIs} open action items · ${others.length} open AIs on other CRs · ${sendingOes.length} OEs sending file`);
   conns.forEach((c,n)=>{
     L.push('');
     L.push(`${'='.repeat(70)}`);
