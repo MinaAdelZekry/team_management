@@ -2957,6 +2957,8 @@ const CHILD_OWNER = 'Dina Medhat';   // the account child CRs are booked under
 const WL_MONTHS = 18;                // most recent created-months to tabulate
 const WL_LAG = 3;                    // months between intake and the output it feeds
 const FORMS_WARN = 3;                // the workbook highlighted a Forms load above this
+// working days since an analyst last received work before the date is flagged
+const ASSIGN_WARN = 4, ASSIGN_BAD = 7;
 // intake is only embedded in full for the last ~400 days, so earlier months
 // would under-count; the ledger stops at that boundary rather than mislead
 const WL_INTAKE_WINDOW = 400;
@@ -3108,11 +3110,14 @@ function renderWorkload(){
       title="${v} of ${expect} expected"><i class="${cls}"
       style="width:${Math.min(100,p)}%"></i></span>${expect?Math.round(p)+'%':'&mdash;'}</td>`;
   };
-  // a long gap since the last assignment means the analyst has stopped receiving work
+  // a gap since the last assignment means the analyst has stopped receiving work.
+  // Counted in working days (§4.2 weekend rule) so a normal weekend cannot push
+  // an idle-looking analyst into amber on its own.
   const dcell = (iso, cls='') => {
     if(!iso) return `<td class="${(cls+' zero').trim()}">&mdash;</td>`;
-    const d = daysBetween(iso, today);
-    return `<td class="${cls} ${d>=30?'bad':d>=14?'warn':''}" title="${d} days ago">${iso}</td>`;
+    const d = workDaysBetween(iso, today);
+    return `<td class="${cls} ${d>=ASSIGN_BAD?'bad':d>=ASSIGN_WARN?'warn':''}"
+      title="${d} working day${d===1?'':'s'} ago (${daysBetween(iso, today)} calendar)">${iso}</td>`;
   };
   const sum = k => w.rows.reduce((a,r)=>a+r[k],0);
 
@@ -3158,7 +3163,8 @@ function renderWorkload(){
     "Not started" is a CR sitting in Dataset Validation that has never been assigned; "Queue" is
     the four EDI stages plus every open Forms request, measured against the
     <b>${wlExpect}</b> expected per analyst (amber over 100%, red over 150%). "Last assigned"
-    turns amber after 14 days and red after 30 — nobody has handed them work since.
+    turns amber after ${ASSIGN_WARN} working days and red after ${ASSIGN_BAD} (Friday and Saturday
+    excluded) — nobody has handed them work since.
     Live Forms and the ${w.years.join(' / ')} columns count CRs of any status, so they include
     work that has already left the queue.${w.formsTypes.length?` Request type
     ${w.formsTypes.map(t=>'&ldquo;'+esc(t)+'&rdquo;').join(' / ')} is read as Forms; every other

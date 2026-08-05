@@ -302,7 +302,10 @@ Per analyst, over CRs with status **In Progress** only (the workbook's rule):
 - **Forms columns** — Open (all in-progress Forms), Mapping (Stage = Mapping **or** Dataset
   Validation), Testing, Migration test (Stage = Migration Testing), Live (status Live, Stage =
   Production — any status, so it is not part of the queue).
-- **Last assigned** — newest Assignment Date among those CRs; amber at 14 days, red at 30.
+- **Last assigned** — newest Assignment Date among those CRs; amber at `ASSIGN_WARN` (4) **working**
+  days, red at `ASSIGN_BAD` (7), using the §4.2 weekend rule (Friday & Saturday excluded) so a
+  normal weekend cannot flag an analyst on its own. The hover shows both the working-day count and
+  the calendar-day count. A gap here means nobody has handed that analyst work since.
 - **Assigned CRs \<year\>** — CRs with an Assignment Date created in that year, any status. Only the
   two most recent years present in the data are shown.
 - **vs expected** — Queue ÷ expected queue (default **20**, editable in the heading and remembered
