@@ -63,7 +63,7 @@ ANALYST_DIR = "analysts"
 # Names must match the CR report's Technical Contact spelling exactly — the
 # build warns about any that don't.
 PAGE_ROSTERS = {
-    "Alaa Yehia": ["Alaa Yehia", "Reem Radwan"],
+    "Alaa Yehia": ["Alaa Yehia", "Reem Radwan", "Poula Moheb", "Aya Fathy"],
 }
 
 
