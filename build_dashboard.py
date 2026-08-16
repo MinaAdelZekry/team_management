@@ -56,6 +56,16 @@ ANALYST_PW_FILE = "analyst_passwords.json"
 # person named after their slug (the folder already says "analyst")
 ANALYST_DIR = "analysts"
 
+# Pages that show a hand-picked group instead of only their owner's work.
+# Key = the analyst whose page it is; value = the names selectable in that
+# page's Employee picker (include the owner), or "*" for the whole team.
+# Anyone not listed here keeps the default page: their own rows, nobody else's.
+# Names must match the CR report's Technical Contact spelling exactly — the
+# build warns about any that don't.
+PAGE_ROSTERS = {
+    "Alaa Yehia": ["Alaa Yehia", "Reem Radwan"],
+}
+
 
 def resolve_password():
     pw = os.environ.get("DASH_PASSWORD")
@@ -495,9 +505,14 @@ def analyst_slice(raw, analyst):
     """Return a copy of `raw` containing only the rows an analyst's own page
     needs: their CRs and OEs, the action items attached to those CRs (or that
     name them as requestor / responsible party), and the matching migration
-    rows. Nothing belonging solely to another analyst is included."""
-    crs = [r for r in raw["cr"] if _txt(r.get("Technical Contact")) == analyst]
-    oes = [r for r in raw["oe"] if _txt(r.get("TechnicalContact")) == analyst]
+    rows. Nothing belonging solely to another analyst is included.
+
+    `analyst` is one name, or an iterable of names for a roster page — the
+    group is then treated as one owner, so a row is kept when it belongs to
+    any member."""
+    names = {analyst} if isinstance(analyst, str) else set(analyst)
+    crs = [r for r in raw["cr"] if _txt(r.get("Technical Contact")) in names]
+    oes = [r for r in raw["oe"] if _txt(r.get("TechnicalContact")) in names]
     cr_ids = {r.get("Request ID") for r in crs if r.get("Request ID") is not None}
     ekeys = {_exact_key(r.get("Customer"), r.get("Carrier")) for r in crs}
     bkeys = {_base_key(r.get("Customer"), r.get("Carrier")) for r in crs}
@@ -508,11 +523,11 @@ def analyst_slice(raw, analyst):
         crid = a.get("ConnectivityRequestID")
         # an AI carrying a CR id links by id only (authoritative, as in the JS)
         if crid is not None:
-            if crid in cr_ids or _txt(a.get("Requestor")) == analyst \
-                    or _txt(a.get("CurrentlyPendingOn")) == analyst:
+            if crid in cr_ids or _txt(a.get("Requestor")) in names \
+                    or _txt(a.get("CurrentlyPendingOn")) in names:
                 ais.append(a)
             continue
-        if _txt(a.get("Requestor")) == analyst or _txt(a.get("CurrentlyPendingOn")) == analyst:
+        if _txt(a.get("Requestor")) in names or _txt(a.get("CurrentlyPendingOn")) in names:
             ais.append(a); continue
         if _exact_key(a.get("ClientName"), a.get("CarrierName")) in ekeys \
                 or _base_key(a.get("ClientName"), a.get("CarrierName")) in bkeys:
@@ -688,12 +703,23 @@ def main():
 
     password = resolve_password()
 
-    def page(role, title, who, body_json, nav, owner="", hide_upload=False):
+    # `roster` limits which analysts a page may show, and so what its Employee
+    # picker offers. Empty = unrestricted (the shared manager views). A default
+    # per-analyst page passes [owner]; a PAGE_ROSTERS page passes the group.
+    # `page_id` namespaces the browser's saved-upload cache. It matters because
+    # an upload is sliced before it is stored (see ownerFilter() at the upload
+    # handler): a cache written by a narrower roster holds too few rows to
+    # widen later, so roster pages fold the group into the id — change the
+    # group and the stale copy is simply never read again.
+    def page(role, title, who, body_json, nav, owner="", hide_upload=False,
+             roster=(), page_id=""):
         return (TEMPLATE.replace("__RAW__", body_json)
                 .replace("__ROLE__", role)
                 .replace("__TITLE__", title)
                 .replace("__WHO__", who)
                 .replace("__NAV__", nav)
+                .replace("__ROSTER__", json.dumps(list(roster), ensure_ascii=False))
+                .replace("__PAGEID__", json.dumps(page_id or owner))
                 .replace("__OWNER__", json.dumps(owner))
                 .replace("__EXPECT__", expect_json)
                 .replace("__UPLOADHIDE__", ' style="display:none"' if hide_upload else "")
@@ -727,6 +753,7 @@ def main():
           f"{len(ai)} AI rows, {len(oe_recs)} OE rows, {len(ms_recs)} MS rows embedded")
 
     # --- per-analyst views: only that analyst's rows, own password, no nav ---
+    # (except the PAGE_ROSTERS pages, which carry their whole group)
     analyst_pws = load_analyst_passwords()
     if not analyst_pws:
         print(f"No {ANALYST_PW_FILE} found — skipped per-analyst pages.")
@@ -739,15 +766,40 @@ def main():
     analyst_dir = os.path.join(os.path.dirname(out), ANALYST_DIR)
     os.makedirs(analyst_dir, exist_ok=True)
     for name in sorted(analyst_pws):
-        sub = analyst_slice(raw, name)
+        members = PAGE_ROSTERS.get(name)
+        if members == "*":            # the whole team, under this person's password
+            roster, sub = [], raw
+        elif members:                 # a hand-picked group from PAGE_ROSTERS
+            roster = list(dict.fromkeys(list(members) + [name]))   # owner always in
+            sub = analyst_slice(raw, roster)
+        else:                         # the default page: this analyst only
+            roster, sub = [name], analyst_slice(raw, name)
+        # A roster page leaves `owner` empty so the multi-person UI stays on
+        # (Employee picker, report button, team totals). What it may show is
+        # held by `roster`, which ownerFilter() re-applies to any upload.
+        solo = roster == [name]
+        # solo pages keep their historic cache id so existing uploads survive;
+        # group pages get one that changes with the group
+        page_id = name if solo else \
+            name + "#" + hashlib.sha256(
+                "|".join(sorted(roster) or ["*"]).encode("utf-8")
+            ).hexdigest()[:8]
         fn = os.path.join(analyst_dir, f"{slugify(name)}.html")
         with open(fn, "w", encoding="utf-8") as f:
             f.write(wrap_encrypted(
                 page("tc", name, "analyst",
-                     json.dumps(sub, ensure_ascii=False), "", owner=name),
+                     json.dumps(sub, ensure_ascii=False), "",
+                     owner=name if solo else "", roster=roster, page_id=page_id),
                 name, analyst_pws[name]))
         rel = f"{ANALYST_DIR}/{os.path.basename(fn)}"
         flag = "" if name in in_data else "  <-- WARNING: name not found in the CR report"
+        if members == "*":
+            flag += "  (whole team)"
+        elif members:
+            unknown = [m for m in roster if m not in in_data]
+            flag += f"  (roster: {', '.join(roster)})"
+            if unknown:
+                flag += f"  <-- WARNING: not in the CR report: {', '.join(unknown)}"
         print(f"  {rel}: {len(sub['cr'])} CRs, {len(sub['ai'])} AIs, "
               f"{len(sub['oe'])} OEs, {len(sub['ms'])} MS for {name}{flag}")
     missing = sorted(in_data - set(analyst_pws))
@@ -1449,7 +1501,7 @@ function process(crRows, aiRows, oeRows, generated){
 // with a shared key its upload would overwrite the full copy the manager pages
 // read back — which made index.html show only one analyst. Scope the key to the
 // owner: analyst pages get their own slot, the shared views keep the full one.
-const DB_KEY = 'analystDash2' + (__OWNER__ ? ':' + __OWNER__ : '');
+const DB_KEY = 'analystDash2' + (__PAGEID__ ? ':' + __PAGEID__ : '');
 const idb = () => new Promise((res,rej)=>{
   const rq = indexedDB.open('analystDashDB',1);
   rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
@@ -1476,23 +1528,28 @@ RAW.oe = RAW.oe || [];
 RAW.ms = RAW.ms || [];
 RAW.dates = RAW.dates || {};
 
-// On a per-analyst page OWNER is that analyst; on the shared manager pages it is
-// empty. The page ships pre-sliced, but the viewer can upload a full CR/AI export
-// — so re-apply the same slice to anything that replaces RAW, keeping the page a
-// view of one person's work. Mirrors analyst_slice() in build_dashboard.py.
+// ROSTER is who this page may show: one name on a default per-analyst page, the
+// group from PAGE_ROSTERS on a roster page, empty on the shared manager views.
+// OWNER is set only when the page belongs to a single person — it also hides the
+// cross-analyst UI (rank, team totals, report), so a roster page leaves it empty.
+// The page ships pre-sliced, but the viewer can upload a full CR/AI export — so
+// re-apply the same slice to anything that replaces RAW, keeping the page a view
+// of those people's work. Mirrors analyst_slice() in build_dashboard.py.
 const OWNER = __OWNER__;
+const ROSTER = new Set(__ROSTER__);
+const inRoster = v => ROSTER.has(txt(v));
 function ownerFilter(){
-  if(!OWNER) return;
-  const crs = (RAW.cr||[]).filter(r => txt(r['Technical Contact'])===OWNER);
+  if(!ROSTER.size) return;
+  const crs = (RAW.cr||[]).filter(r => inRoster(r['Technical Contact']));
   const crIds = new Set(crs.map(r=>r['Request ID']).filter(v=>v!=null));
   const ekeys = new Set(crs.map(r=>exactKey(r['Customer'], r['Carrier'])));
   const bkeys = new Set(crs.map(r=>baseKey(r['Customer'], r['Carrier'])));
   const infos = crs.map(r=>({nc:norm(r['Customer']), nk:normCarrier(r['Carrier'])}));
   RAW.cr = crs;
-  RAW.oe = (RAW.oe||[]).filter(r => txt(r['TechnicalContact'])===OWNER);
+  RAW.oe = (RAW.oe||[]).filter(r => inRoster(r['TechnicalContact']));
   RAW.ms = (RAW.ms||[]).filter(m => crIds.has(m['ConnectivityRequestID']));
   RAW.ai = (RAW.ai||[]).filter(a => {
-    const mine = txt(a['Requestor'])===OWNER || txt(a['CurrentlyPendingOn'])===OWNER;
+    const mine = inRoster(a['Requestor']) || inRoster(a['CurrentlyPendingOn']);
     const crid = a['ConnectivityRequestID'];
     if(crid!=null && crid!=='') return crIds.has(crid) || mine;
     if(mine) return true;
@@ -2298,8 +2355,8 @@ $('#files').onchange = async e => {
     if(newMs){ RAW.ms = newMs; }
     // "today" for day-based calcs = the newest report date currently loaded
     RAW.generated = [RAW.dates.cr, RAW.dates.ai, RAW.dates.oe].filter(Boolean).sort().at(-1) || localDay(new Date());
-    // slice an uploaded full report down to this page's owner before it is
-    // processed or cached, so only their rows are ever shown or stored
+    // slice an uploaded full report down to this page's roster before it is
+    // processed or cached, so only those rows are ever shown or stored
     ownerFilter();
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
     let saveWarn = '';
