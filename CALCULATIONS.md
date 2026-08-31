@@ -171,7 +171,8 @@ Stage order: Pending Start → Requirements Gathering → Resource Assignment �
 Mapping → Testing → Ready for Production → Production.
 (The retired "Obtain Customer Dataset" stage is mapped onto Dataset Validation.)
 
-- Each stage's **start date** comes from its CR column; `Pending Start` uses `Created Date`.
+- Each stage's **start date** comes from its CR column; `Pending Start` uses `Intake Date`
+  (called `Created Date` in exports before the rename; both spellings are accepted).
 - **Testing override**: Testing starts at `First Test File` when recorded, else the `Testing`
   column date. Exception: if the First Test File date is more than **30 days before** the
   Testing-stage date (a stale/wrong entry), the Testing-stage date is used instead. A CR at/past
@@ -297,7 +298,7 @@ The workbook addressed one fixed column layout through an external reference (`[
 | `N`, `P` | `Stage` | every stage test |
 | `O` | `Migration` | migration flag |
 | `Q` | `Status` | every status test |
-| `R` | `Created Date` | monthly intake |
+| `R` | `Intake Date` | monthly intake |
 | `S` | `Technical Contact` | the roster |
 | `T` | `Assignment Date` | latest assignment |
 | `W`, `Y` | `First Production File` | monthly output |

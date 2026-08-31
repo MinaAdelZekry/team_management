@@ -296,7 +296,8 @@ CR_KEEP = ["Request ID", "Carrier", "Customer", "Instance", "Request Type",
            "Migration", "IsMigration", "Is Migration", "Migration Request",
            "Migration Type", "Migration Phase",
            "Stage", "Status", "Technical Contact", "iSolved Contact",
-           "Intake Date", "Assignment Date", "Requirements Gathering",
+           "Intake Date", "Created Date", "Assignment Date",
+           "Requirements Gathering",
            "Resource Assignment", "Dataset Validation", "Mapping", "Testing",
            "Ready For Production", "Production", "First Test File",
            "First Production File"]
@@ -324,7 +325,8 @@ ACTIVE = ["In Progress", "Blocked", "On Hold", "Not Started"]
 # Each entry is a group of accepted spellings, satisfied if ANY is present. That
 # is how the existing aliases work (DueDate / Due Date / DueOn), and it is how
 # you absorb a rename: add the new name to the group, keep the old one.
-CR_REQUIRED = [("Request ID",), ("Status",), ("Intake Date",), ("Customer",),
+CR_REQUIRED = [("Request ID",), ("Status",), ("Intake Date", "Created Date"),
+               ("Customer",),
                ("Carrier",), ("Stage",), ("Technical Contact",),
                ("Ready For Production",), ("Production",)]
 AI_REQUIRED = [("ActionItemID",), ("ClientName",), ("CarrierName",),
@@ -343,7 +345,8 @@ OE_NONEMPTY = ["Status", "TechnicalContact"]
 # interchangeable spellings: while one member is present the others are expected
 # to be absent, so they must not be reported as missing
 CR_ALIASES = [("Migration", "IsMigration", "Is Migration", "Migration Request",
-               "Migration Type", "Migration Phase")]
+               "Migration Type", "Migration Phase"),
+              ("Intake Date", "Created Date")]
 AI_ALIASES = [("DueDate", "Due Date", "DueOn")]
 
 
@@ -633,6 +636,10 @@ def main():
     cr_path, ai_path, oe_path = detect(args)
 
     cr = pd.read_excel(cr_path)
+    # "Created Date" was renamed to "Intake Date" in the export; an older report
+    # still carries the old name, and everything downstream reads the new one
+    if "Intake Date" not in cr.columns and "Created Date" in cr.columns:
+        cr = cr.rename(columns={"Created Date": "Intake Date"})
     ai = pd.read_excel(ai_path)
     oe = pd.read_excel(oe_path) if oe_path else None
     ms = find_ms(args)
@@ -1162,6 +1169,17 @@ const STAGE_SHORT = ["Pending","Req. Gathering","Resource Asgmt",
 const STAGE_COLORS = Array.from({length:8}, (_,i)=>`var(--s${i})`);
 const STAGE_COLS = ["Intake Date","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready For Production","Production"];
+// The CR export renamed "Created Date" to "Intake Date". Rows restored from a
+// browser cache or uploaded from an older export still carry the old name, and
+// a cached upload is never replaced by a new build — without this fold every
+// intake-derived figure (Pending Start, intake trend, ledger, workload) would
+// silently read undefined, with no column warning to explain it.
+function normCr(rows){
+  for(const r of rows||[]){
+    if(r['Intake Date']==null && r['Created Date']!=null) r['Intake Date'] = r['Created Date'];
+  }
+  return rows;
+}
 const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
 // active, but nobody is moving them right now: set aside from the in-progress
 // list into their own section so the active count means work actually running
@@ -1573,7 +1591,7 @@ async function restoreSaved(){
   // Consequence: once uploaded, a newly deployed build will NOT replace this
   // copy. Clearing it needs the browser's own "clear site data".
   if(saved){
-    RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
+    RAW.cr = normCr(saved.cr); RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.ms && saved.ms.length) RAW.ms = saved.ms;
     if(saved.dates) RAW.dates = saved.dates;
@@ -2349,7 +2367,7 @@ $('#files').onchange = async e => {
     const colWarn = colErrs.length
       ? ` — COLUMN CHANGED: ${colErrs.join(' • ')}. Those fields stay empty until the dashboard is rebuilt with the new name.`
       : '';
-    if(newCr){ RAW.cr = newCr; RAW.dates.cr = crDate; }
+    if(newCr){ RAW.cr = normCr(newCr); RAW.dates.cr = crDate; }
     if(newAi){ RAW.ai = newAi; RAW.dates.ai = aiDate; }
     if(newOe){ RAW.oe = newOe; RAW.dates.oe = oeDate; }
     if(newMs){ RAW.ms = newMs; }
@@ -2698,6 +2716,17 @@ const STAGES = ["Pending Start","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready for Production","Production"];
 const STAGE_COLS = ["Intake Date","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready For Production","Production"];
+// The CR export renamed "Created Date" to "Intake Date". Rows restored from a
+// browser cache or uploaded from an older export still carry the old name, and
+// a cached upload is never replaced by a new build — without this fold every
+// intake-derived figure (Pending Start, intake trend, ledger, workload) would
+// silently read undefined, with no column warning to explain it.
+function normCr(rows){
+  for(const r of rows||[]){
+    if(r['Intake Date']==null && r['Created Date']!=null) r['Intake Date'] = r['Created Date'];
+  }
+  return rows;
+}
 const OE_STAGES = ["Pending Start","Resource Assignment","Requirement Gathering",
   "Waiting for OE Data","Sending OE File","Get Carrier Confirmation","Completed"];
 const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
@@ -3528,7 +3557,7 @@ async function restoreSaved(){
   // Consequence: once uploaded, a newly deployed build will NOT replace this
   // copy. Clearing it needs the browser's own "clear site data".
   if(saved){
-    RAW.cr = saved.cr; RAW.ai = saved.ai; RAW.generated = saved.generated;
+    RAW.cr = normCr(saved.cr); RAW.ai = saved.ai; RAW.generated = saved.generated;
     if(saved.oe && saved.oe.length) RAW.oe = saved.oe;
     if(saved.ms && saved.ms.length) RAW.ms = saved.ms;
     if(saved.dates) RAW.dates = saved.dates;
@@ -3641,7 +3670,7 @@ $('#files').onchange = async e => {
     const colWarn = colErrs.length
       ? ` — COLUMN CHANGED: ${colErrs.join(' • ')}. Those fields stay empty until the dashboard is rebuilt with the new name.`
       : '';
-    if(newCr){ RAW.cr = newCr; RAW.dates.cr = crDate; }
+    if(newCr){ RAW.cr = normCr(newCr); RAW.dates.cr = crDate; }
     if(newAi){ RAW.ai = newAi; RAW.dates.ai = aiDate; }
     if(newOe){ RAW.oe = newOe; RAW.dates.oe = oeDate; }
     if(newMs){ RAW.ms = newMs; }
