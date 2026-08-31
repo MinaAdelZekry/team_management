@@ -63,7 +63,7 @@ ANALYST_DIR = "analysts"
 # Names must match the CR report's Technical Contact spelling exactly — the
 # build warns about any that don't.
 PAGE_ROSTERS = {
-    "Alaa Yehia": ["Alaa Yehia", "Reem Radwan", "Poula Moheb", "Aya Fathy", "Mai Atef"],
+    "Alaa Yehia": ["Alaa Yehia", "Reem Radwan", "Aya Fathy", "Mai Atef"],
 }
 
 
@@ -296,7 +296,7 @@ CR_KEEP = ["Request ID", "Carrier", "Customer", "Instance", "Request Type",
            "Migration", "IsMigration", "Is Migration", "Migration Request",
            "Migration Type", "Migration Phase",
            "Stage", "Status", "Technical Contact", "iSolved Contact",
-           "Created Date", "Assignment Date", "Requirements Gathering",
+           "Intake Date", "Assignment Date", "Requirements Gathering",
            "Resource Assignment", "Dataset Validation", "Mapping", "Testing",
            "Ready For Production", "Production", "First Test File",
            "First Production File"]
@@ -324,7 +324,7 @@ ACTIVE = ["In Progress", "Blocked", "On Hold", "Not Started"]
 # Each entry is a group of accepted spellings, satisfied if ANY is present. That
 # is how the existing aliases work (DueDate / Due Date / DueOn), and it is how
 # you absorb a rename: add the new name to the group, keep the old one.
-CR_REQUIRED = [("Request ID",), ("Status",), ("Created Date",), ("Customer",),
+CR_REQUIRED = [("Request ID",), ("Status",), ("Intake Date",), ("Customer",),
                ("Carrier",), ("Stage",), ("Technical Contact",),
                ("Ready For Production",), ("Production",)]
 AI_REQUIRED = [("ActionItemID",), ("ClientName",), ("CarrierName",),
@@ -660,7 +660,7 @@ def main():
     ai_keys = {_base_key(r.get("ClientName"), r.get("CarrierName"))
                for _, r in ai.iterrows()}
     cr_keys = cr.apply(lambda r: _base_key(r.get("Customer"), r.get("Carrier")), axis=1)
-    recent = pd.to_datetime(cr["Created Date"], errors="coerce") \
+    recent = pd.to_datetime(cr["Intake Date"], errors="coerce") \
         >= (datetime.now() - pd.Timedelta(days=400))
     mask = cr["Status"].isin(ACTIVE) \
         | cr["Ready For Production"].notna() | cr["Production"].notna() \
@@ -1160,7 +1160,7 @@ const STAGE_SHORT = ["Pending","Req. Gathering","Resource Asgmt",
 // stage colors come from CSS variables so each theme uses its own validated
 // set (classic multi-hue palette, blues separated for colorblind safety)
 const STAGE_COLORS = Array.from({length:8}, (_,i)=>`var(--s${i})`);
-const STAGE_COLS = ["Created Date","Requirements Gathering","Resource Assignment",
+const STAGE_COLS = ["Intake Date","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready For Production","Production"];
 const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
 // active, but nobody is moving them right now: set aside from the in-progress
@@ -1364,7 +1364,7 @@ function process(crRows, aiRows, oeRows, generated){
     (aiByBase[it.bkey] = aiByBase[it.bkey]||[]).push(it);
   }
 
-  const dateCols = ['Created Date','Assignment Date',...Object.keys(MS)];
+  const dateCols = ['Intake Date','Assignment Date',...Object.keys(MS)];
   const conns = [];
   for(const r of crRows){
     if(!ACTIVE.has(txt(r['Status'])) || !crEmp(r)) continue;
@@ -2696,7 +2696,7 @@ RAW.oe = RAW.oe || []; RAW.ms = RAW.ms || []; RAW.dates = RAW.dates || {};
 
 const STAGES = ["Pending Start","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready for Production","Production"];
-const STAGE_COLS = ["Created Date","Requirements Gathering","Resource Assignment",
+const STAGE_COLS = ["Intake Date","Requirements Gathering","Resource Assignment",
   "Dataset Validation","Mapping","Testing","Ready For Production","Production"];
 const OE_STAGES = ["Pending Start","Resource Assignment","Requirement Gathering",
   "Waiting for OE Data","Sending OE File","Get Carrier Confirmation","Completed"];
@@ -2779,7 +2779,7 @@ function teamStats(){
   for(const r of cr){
     const p = toISO(r['Ready For Production']) || toISO(r['Production']);
     const a = toISO(r['Assignment Date']);
-    const c = toISO(r['Created Date']);
+    const c = toISO(r['Intake Date']);
     const isCanc = txt(r['Status'])==='Cancelled';
     if(c){ created.push(c.slice(0,7)); if(isCanc) cancelled.push({m:c.slice(0,7), assigned:!!a}); }
     if(p){
@@ -3028,7 +3028,7 @@ function renderStageDur(){
 //
 // Workbook column (external ref [1]EDI!) -> report column:
 //   I  request type ("EDI" / "Forms")     N, P  stage        Q  status
-//   L  assignment date (blank = not yet started)             R  created date
+//   L  assignment date (blank = not yet started)             R  Intake Date
 //   S  technical contact                  T  assignment date
 //   W, Y  first production file           AC  production date
 // The workbook flagged migrations by partner name ({"Everything Benefits",
@@ -3081,7 +3081,7 @@ function workloadSheet(){
 
   // --- per-analyst EDI / Forms queue (workbook rows 3-20) ---
   const names = [...new Set(inProg.map(r=>txt(r['Technical Contact'])).filter(Boolean))];
-  const years = [...new Set(cr.map(r=>monthOf(toISO(r['Created Date'])))
+  const years = [...new Set(cr.map(r=>monthOf(toISO(r['Intake Date'])))
     .filter(Boolean).map(m=>m.slice(0,4)))].sort().slice(-2);
   const rows = names.map(a=>{
     const own = r => txt(r['Technical Contact'])===a;
@@ -3107,7 +3107,7 @@ function workloadSheet(){
     q.queue = q.load + q.forms;                                    // workbook Q = C + K
     // "Total CRs (year)": assigned EDI CRs created in that year, any status
     q.byYear = years.map(y=>cr.filter(r=>own(r) && !isForms(r) && !!toISO(r['Assignment Date'])
-      && (monthOf(toISO(r['Created Date']))||'').slice(0,4)===y).length);
+      && (monthOf(toISO(r['Intake Date']))||'').slice(0,4)===y).length);
     return q;
   // an analyst whose only in-progress work is Requirements Gathering or Resource
   // Assignment belongs to the RG table, not this one — no all-zero rows here
@@ -3150,10 +3150,10 @@ function workloadSheet(){
   // start at the first whole month after it
   const cutM = addMonths(new Date(new Date(asOf+'T00:00:00Z').getTime()
     - WL_INTAKE_WINDOW*86400000).toISOString().slice(0,7), 1);
-  const months = [...new Set(cr.map(r=>monthOf(toISO(r['Created Date']))).filter(Boolean))]
+  const months = [...new Set(cr.map(r=>monthOf(toISO(r['Intake Date']))).filter(Boolean))]
     .filter(m=>m>=cutM).sort().slice(-WL_MONTHS);
   const ledger = months.map(m=>{
-    const made = cr.filter(r=>monthOf(toISO(r['Created Date']))===m);
+    const made = cr.filter(r=>monthOf(toISO(r['Intake Date']))===m);
     const st = s => made.filter(r=>statusIs(r,s)).length;
     const row = {m, input: made.length,
       notStarted: st('Not Started'), inProgress: st('In Progress'), live: st('Live'),
