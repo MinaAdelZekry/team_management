@@ -1181,6 +1181,16 @@ function normCr(rows){
   return rows;
 }
 const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
+// "Active" is narrower for OE requests than for CRs: blocked and on-hold ones
+// are not being worked, so nothing counts them. Kept separate from ACTIVE,
+// which the CR pipeline relies on and must go on including all four.
+const OE_ACTIVE = new Set(["In Progress","Not Started"]);
+// A draft is not real work yet. The flag arrives as 1/0, true/false or
+// "Yes"/"No" depending on the export, so all the truthy spellings are accepted
+// — reading only Number(...)===1 would let a "Yes" draft through as live.
+const oeDraft = r => { const t = txt(r['IsDraftOERequest']).toLowerCase();
+  return r['IsDraftOERequest']===true || t==='1' || t==='true' || t==='yes'; };
+const oeLive = r => OE_ACTIVE.has(txt(r['Status'])) && !oeDraft(r);
 // active, but nobody is moving them right now: set aside from the in-progress
 // list into their own section so the active count means work actually running
 const PAUSED = new Set(["On Hold","Blocked"]);
@@ -1464,7 +1474,7 @@ function process(crRows, aiRows, oeRows, generated){
   // OE requests: active ones assigned to a technical contact
   const oes = [];
   for(const r of (oeRows||[])){
-    if(!ACTIVE.has(txt(r['Status'])) || !oeEmp(r)) continue;
+    if(!oeLive(r) || !oeEmp(r)) continue;
     oes.push({
       id: r['OERequestID'], crId: r['ConnectivityRequestID'],
       tc: oeEmp(r), client: txt(r['ClientName']), carrier: txt(r['CarrierName']),
@@ -1474,7 +1484,7 @@ function process(crRows, aiRows, oeRows, generated){
       isolved: oeOther(r), dataChanges: txt(r['ISolvedDataChanges']),
       groupStructure: txt(r['UpdatedGroupStructure']),
       canResume: txt(r['CanResumeProductionPYSD']), resumed: txt(r['ResumedProduction']),
-      draft: Number(r['IsDraftOERequest'])===1,
+      draft: oeDraft(r),
       created: toISO(r['Created']), createdBy: txt(r['CreatedBy'])
     });
   }
@@ -2739,6 +2749,16 @@ function normCr(rows){
 const OE_STAGES = ["Pending Start","Resource Assignment","Requirement Gathering",
   "Waiting for OE Data","Sending OE File","Get Carrier Confirmation","Completed"];
 const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
+// "Active" is narrower for OE requests than for CRs: blocked and on-hold ones
+// are not being worked, so nothing counts them. Kept separate from ACTIVE,
+// which the CR pipeline relies on and must go on including all four.
+const OE_ACTIVE = new Set(["In Progress","Not Started"]);
+// A draft is not real work yet. The flag arrives as 1/0, true/false or
+// "Yes"/"No" depending on the export, so all the truthy spellings are accepted
+// — reading only Number(...)===1 would let a "Yes" draft through as live.
+const oeDraft = r => { const t = txt(r['IsDraftOERequest']).toLowerCase();
+  return r['IsDraftOERequest']===true || t==='1' || t==='true' || t==='yes'; };
+const oeLive = r => OE_ACTIVE.has(txt(r['Status'])) && !oeDraft(r);
 const STAGE_COLORS = Array.from({length:8}, (_,i)=>`var(--s${i})`);
 // an action item pending on one of these is waiting on someone outside the team
 const EXTERNAL = /carrier|client|partner|vendor/i;
@@ -2877,12 +2897,7 @@ function teamStats(){
     return m && !['no','false','0','n','none','-'].includes(m); }).length;
 
   // ---- OEs ----
-  // A draft is not real work yet, so it counts nowhere here. The analyst page
-  // reads the flag as Number(...)===1; this also accepts the "Yes"/"true"
-  // spellings an export can carry, so a truthy flag is never read as live.
-  const oeDraft = r => { const t = txt(r['IsDraftOERequest']).toLowerCase();
-    return r['IsDraftOERequest']===true || t==='1' || t==='true' || t==='yes'; };
-  const oeActive = oe.filter(r=>ACTIVE.has(txt(r['Status'])) && !oeDraft(r));
+  const oeActive = oe.filter(oeLive);
   // an OE with no technical contact has nobody to chase, so it is not actionable
   const oePast = oeActive.filter(r=>{ const p = toISO(r['PlanYearStartDate']);
     return p && p < asOf && txt(r['TechnicalContact']); });
@@ -3123,19 +3138,36 @@ function workloadSheet(){
   const blockedOut = cr.filter(r=>statusIs(r,'Blocked')
     && ['Requirements Gathering','Resource Assignment','Pending Start']
        .some(s=>stageIs(r,s))).length;
-  // OE requests are embedded active-only, but an uploaded sheet is filtered the
-  // same way — re-apply it so both paths agree. A request whose plan year has
-  // already started is then dropped: the queue counts forward-looking work, and
-  // those are chased from the Needs attention list instead. Same rule as the
-  // analyst page's oePyOpen(); an OE with no plan year start cannot be judged,
-  // so it stays in.
-  const oeActive = (RAW.oe || []).filter(r=>ACTIVE.has(txt(r['Status'])))
+  // Same rule as the Active OEs KPI — live (not blocked, on hold or draft) —
+  // plus one more: a request whose plan year has already started is dropped,
+  // because the queue counts forward-looking work and those are chased from the
+  // Needs attention list instead. An OE with no plan year start cannot be
+  // judged, so it stays in. Re-applied to uploads, not just embedded rows.
+  const oeActive = (RAW.oe || []).filter(oeLive)
     .filter(r=>{ const pysd = toISO(r['PlanYearStartDate']); return !pysd || pysd >= asOf; });
   const latestOf = (list, f) => { const ds = list.map(r=>toISO(r[f])).filter(Boolean).sort();
     return ds.length ? ds[ds.length-1] : null; };
   const latest = list => latestOf(list, 'Assignment Date');
   // OE runs its own stage rail (OE_STAGES), so these bucket by stage name
   const oeAt = (list, ...names) => list.filter(r=>names.some(x=>stageIs(r,x))).length;
+  // --- when the remaining plan years start ---
+  // The upcoming month is the whole calendar month after the as-of month: from
+  // its first day to its last. Plan years still to start inside the as-of month
+  // are sooner than that and get their own bucket rather than being folded in,
+  // so the four buckets below partition every open OE exactly once.
+  // (oeActive has already excluded plan years that have started, and drafts.)
+  const soonMonth = addMonths(asOf.slice(0,7), 1);
+  const soonStart = soonMonth + '-01';
+  const soonEnd = (() => { const [y,mo] = soonMonth.split('-').map(Number);
+    return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0,10); })();
+  const oePy = r => toISO(r['PlanYearStartDate']);
+  const oeSoonList  = oeActive.filter(r=>{ const p = oePy(r); return p && p >= soonStart && p <= soonEnd; });
+  const oeThisMonth = oeActive.filter(r=>{ const p = oePy(r); return p && p < soonStart; }).length;
+  const oeLater     = oeActive.filter(r=>{ const p = oePy(r); return p && p > soonEnd; }).length;
+  const oeNoPysd    = oeActive.filter(r=>!oePy(r)).length;
+  // OEs nobody owns, among the ones coming up: they name no technical contact,
+  // so they appear in no analyst's row — the table would otherwise hide them
+  const oeUnassigned = oeSoonList.filter(r=>!txt(r['TechnicalContact'])).length;
 
   // --- per-analyst EDI / Forms queue (workbook rows 3-20) ---
   // OE names live in a different column and an analyst may hold OE work but no
@@ -3265,7 +3297,8 @@ function workloadSheet(){
   const types = [...new Set(cr.map(r=>txt(r['Request Type'])).filter(Boolean))].sort();
   return {asOf, rows, years, rgRows, rgUnassigned, awaiting: awaiting.length, awaitBy,
     pendingStart, live, ledger, quarters, months, cutM, types, grandQueue, childInProg,
-    queueTotal, rfpTotal, rgTotal, blockedOut, oeTotal: oeActive.length,
+    queueTotal, rfpTotal, rgTotal, blockedOut, oeTotal: oeActive.length, oeUnassigned,
+    oeSoon: oeSoonList.length, oeThisMonth, oeLater, oeNoPysd, soonMonth, soonStart, soonEnd,
     formsTypes: types.filter(t=>/form/i.test(t)), inProg: inProg.length};
 }
 
@@ -3302,7 +3335,8 @@ function renderWorkload(){
       <div class="wchip"><b>${w.childInProg}</b>child CRs in progress</div>
       <div class="wchip"><b>${w.live.edi}</b>live EDI connections${w.live.child?` &middot; ${w.live.child} child`:''}</div>
       <div class="wchip"><b>${w.live.forms}</b>live Forms connections</div>
-      <div class="wchip"><b>${w.oeTotal}</b>open OE requests</div>
+      <div class="wchip" title="Plan years that have already started are not counted at all, nor are drafts.&#10;Upcoming month = ${w.soonStart} to ${w.soonEnd}.&#10;The counts beside the total split it, so they always add up."><b>${w.oeSoon}</b>OE requests starting ${w.soonMonth} &middot; of ${w.oeTotal} open${w.oeThisMonth?` &middot; ${w.oeThisMonth} earlier, still in ${w.asOf.slice(0,7)}`:''}${w.oeLater?` &middot; ${w.oeLater} after ${w.soonMonth}`:''}${w.oeNoPysd?` &middot; ${w.oeNoPysd} with no plan year start`:''}</div>
+      <div class="wchip" title="Plan year starting in ${w.soonMonth} and naming no technical contact — they are in no row below"><b>${w.oeUnassigned}</b>OE requests with no analyst</div>
       <div class="wchip"><b>${w.live.disabled}</b>production disabled</div>
     </div>`;
   $('#wl-queue').innerHTML = w.rows.length ? queueChips + `<div class="wscroll"><table class="wtbl">
@@ -3349,7 +3383,10 @@ function renderWorkload(){
     <b>not</b> included in "Queue" or the capacity bar, so those keep matching the workbook.
     "Assigned" is every open OE request that names the analyst whose plan year has not
     started yet; ones already past their PlanYearStartDate are left out here and listed
-    under Needs attention instead.
+    under Needs attention instead. Drafts are never counted. Every OE with no technical
+    contact is missing from these columns whatever its plan year, so they will not add up
+    to the open total; the chip above counts only the ${w.oeUnassigned} of them whose plan
+    year starts in ${w.soonMonth}.
     Live Forms and the ${w.years.join(' / ')} columns count CRs of any status, so they include
     work that has already left the queue.${w.formsTypes.length?` Request type
     ${w.formsTypes.map(t=>'&ldquo;'+esc(t)+'&rdquo;').join(' / ')} is read as Forms; every other
