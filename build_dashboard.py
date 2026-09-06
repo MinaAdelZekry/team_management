@@ -3105,11 +3105,20 @@ function workloadSheet(){
   const blockedOut = cr.filter(r=>statusIs(r,'Blocked')
     && ['Requirements Gathering','Resource Assignment','Pending Start']
        .some(s=>stageIs(r,s))).length;
-  const latest = list => { const ds = list.map(r=>toISO(r['Assignment Date'])).filter(Boolean).sort();
+  // OE requests are embedded active-only, but an uploaded sheet is filtered the
+  // same way — re-apply it so both paths agree
+  const oeActive = (RAW.oe || []).filter(r=>ACTIVE.has(txt(r['Status'])));
+  const latestOf = (list, f) => { const ds = list.map(r=>toISO(r[f])).filter(Boolean).sort();
     return ds.length ? ds[ds.length-1] : null; };
+  const latest = list => latestOf(list, 'Assignment Date');
+  // OE runs its own stage rail (OE_STAGES), so these bucket by stage name
+  const oeAt = (list, ...names) => list.filter(r=>names.some(x=>stageIs(r,x))).length;
 
   // --- per-analyst EDI / Forms queue (workbook rows 3-20) ---
-  const names = [...new Set(inProg.map(r=>txt(r['Technical Contact'])).filter(Boolean))];
+  // OE names live in a different column and an analyst may hold OE work but no
+  // in-progress CR, so the roster is the union — otherwise they get no row at all
+  const names = [...new Set([...inProg.map(r=>txt(r['Technical Contact'])),
+    ...oeActive.map(r=>txt(r['TechnicalContact']))].filter(Boolean))];
   const years = [...new Set(cr.map(r=>monthOf(toISO(r['Intake Date'])))
     .filter(Boolean).map(m=>m.slice(0,4)))].sort().slice(-2);
   const rows = names.map(a=>{
@@ -3132,6 +3141,21 @@ function workloadSheet(){
       fMig:       forms.filter(r=>stageIs(r,'Migration Testing')).length,
       fProd:      cr.filter(r=>own(r) && isForms(r) && statusIs(r,'Live') && stageIs(r,'Production')).length,
       formsDate:  latest(forms)};
+    // --- open enrollment ---
+    // A separate queue from the CR pipeline, so it is deliberately NOT added to
+    // q.load / q.queue: the capacity column and every workbook total go on
+    // meaning what they did. These buckets partition all seven OE_STAGES.
+    const myOe = oeActive.filter(r=>txt(r['TechnicalContact'])===a);
+    q.oe         = myOe.length;
+    q.oeNotStart = oeAt(myOe, 'Pending Start', 'Resource Assignment');
+    q.oeGather   = oeAt(myOe, 'Requirement Gathering');
+    q.oeWaiting  = oeAt(myOe, 'Waiting for OE Data');
+    q.oeSending  = oeAt(myOe, 'Sending OE File');
+    q.oeConfirm  = oeAt(myOe, 'Get Carrier Confirmation', 'Completed');
+    // the plan year has already begun and the request is still open — the OE
+    // missed its deadline. ISO dates compare correctly as plain strings.
+    q.oePassed   = myOe.filter(r=>{ const d = toISO(r['PlanYearStartDate']);
+      return d && d < asOf; }).length;
     q.load  = q.notStarted + q.dataset + q.mapping + q.testing;   // workbook C = SUM(D:G)
     q.queue = q.load + q.forms;                                    // workbook Q = C + K
     // "Total CRs (year)": assigned EDI CRs created in that year, any status
@@ -3140,7 +3164,7 @@ function workloadSheet(){
     return q;
   // an analyst whose only in-progress work is Requirements Gathering or Resource
   // Assignment belongs to the RG table, not this one — no all-zero rows here
-  }).filter(q=>q.queue || q.rfp || q.fProd)
+  }).filter(q=>q.queue || q.rfp || q.fProd || q.oe)
     .sort((x,y)=>y.queue-x.queue || x.a.localeCompare(y.a));
 
   // --- requirements gathering (workbook "RG CRs" sheet) ---
@@ -3222,7 +3246,7 @@ function workloadSheet(){
   const types = [...new Set(cr.map(r=>txt(r['Request Type'])).filter(Boolean))].sort();
   return {asOf, rows, years, rgRows, rgUnassigned, awaiting: awaiting.length, awaitBy,
     pendingStart, live, ledger, quarters, months, cutM, types, grandQueue, childInProg,
-    queueTotal, rfpTotal, rgTotal, blockedOut,
+    queueTotal, rfpTotal, rgTotal, blockedOut, oeTotal: oeActive.length,
     formsTypes: types.filter(t=>/form/i.test(t)), inProg: inProg.length};
 }
 
@@ -3259,19 +3283,23 @@ function renderWorkload(){
       <div class="wchip"><b>${w.childInProg}</b>child CRs in progress</div>
       <div class="wchip"><b>${w.live.edi}</b>live EDI connections${w.live.child?` &middot; ${w.live.child} child`:''}</div>
       <div class="wchip"><b>${w.live.forms}</b>live Forms connections</div>
+      <div class="wchip"><b>${w.oeTotal}</b>open OE requests</div>
       <div class="wchip"><b>${w.live.disabled}</b>production disabled</div>
     </div>`;
   $('#wl-queue').innerHTML = w.rows.length ? queueChips + `<div class="wscroll"><table class="wtbl">
     <thead>
       <tr><th class="lbl"></th><th colspan="2" class="grp">Load</th>
         <th colspan="6" class="grp">EDI</th><th colspan="6" class="grp">Forms</th>
+        <th colspan="7" class="grp">OE</th>
         <th colspan="${w.years.length}" class="grp">Assigned CRs</th></tr>
       <tr><th class="lbl">Analyst</th>
         <th class="grp">Queue</th><th>vs expected</th>
         <th class="grp">Not started</th><th>Dataset val.</th><th>Mapping</th><th>Testing</th>
         <th>Ready for prod</th><th>Last assigned</th>
         <th class="grp">Open</th><th>Mapping</th><th>Testing</th><th>Migration test</th>
-        <th>Live</th><th>Last assigned</th>${yrCols}</tr>
+        <th>Live</th><th>Last assigned</th>
+        <th class="grp">Assigned</th><th>Not started</th><th>Gathering</th><th>Waiting for data</th>
+        <th>Sending file</th><th>Confirm / done</th><th>Passed PYSD</th>${yrCols}</tr>
     </thead>
     <tbody>
       ${w.rows.map(r=>`<tr>
@@ -3279,6 +3307,7 @@ function renderWorkload(){
         ${n(r.queue,'grp')}${capBar(r.queue, wlExpect)}
         ${n(r.notStarted,'grp')}${n(r.dataset)}${n(r.mapping)}${n(r.testing)}${n(r.rfp)}${dcell(r.ediDate)}
         ${n(r.forms, 'grp'+(r.forms>FORMS_WARN?' warn':''))}${n(r.fMapping)}${n(r.fTesting)}${n(r.fMig)}${n(r.fProd)}${dcell(r.formsDate)}
+        ${n(r.oe,'grp')}${n(r.oeNotStart)}${n(r.oeGather)}${n(r.oeWaiting)}${n(r.oeSending)}${n(r.oeConfirm)}${n(r.oePassed,'bad')}
         ${r.byYear.map((v,i)=>n(v, i?'':'grp')).join('')}
       </tr>`).join('')}
     </tbody>
@@ -3286,6 +3315,7 @@ function renderWorkload(){
       ${n(sum('queue'),'grp')}${capBar(sum('queue'), wlExpect*w.rows.length)}
       ${n(sum('notStarted'),'grp')}${n(sum('dataset'))}${n(sum('mapping'))}${n(sum('testing'))}${n(sum('rfp'))}<td></td>
       ${n(sum('forms'),'grp')}${n(sum('fMapping'))}${n(sum('fTesting'))}${n(sum('fMig'))}${n(sum('fProd'))}<td></td>
+      ${n(sum('oe'),'grp')}${n(sum('oeNotStart'))}${n(sum('oeGather'))}${n(sum('oeWaiting'))}${n(sum('oeSending'))}${n(sum('oeConfirm'))}${n(sum('oePassed'),'bad')}
       ${w.years.map((_,i)=>n(w.rows.reduce((a,r)=>a+r.byYear[i],0), i?'':'grp')).join('')}
     </tr></tfoot>
   </table></div>
@@ -3295,6 +3325,12 @@ function renderWorkload(){
     <b>${wlExpect}</b> expected per analyst (amber over 100%, red over 150%). "Last assigned"
     turns amber after ${ASSIGN_WARN} working days and red after ${ASSIGN_BAD} (Friday and Saturday
     excluded) — nobody has handed them work since.
+    The OE columns are open-enrollment requests (active status only, from the OE report,
+    bucketed across the seven OE stages) — they are a separate queue and are deliberately
+    <b>not</b> included in "Queue" or the capacity bar, so those keep matching the workbook.
+    "Assigned" is every open OE request that names the analyst; "Passed PYSD" counts those
+    whose PlanYearStartDate is already behind ${w.asOf} — the plan year has started and the
+    request is still open — and is flagged red whenever it is not zero.
     Live Forms and the ${w.years.join(' / ')} columns count CRs of any status, so they include
     work that has already left the queue.${w.formsTypes.length?` Request type
     ${w.formsTypes.map(t=>'&ldquo;'+esc(t)+'&rdquo;').join(' / ')} is read as Forms; every other
