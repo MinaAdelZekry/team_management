@@ -1134,7 +1134,7 @@ __NAV__
   <h2 id="othertoggle" style="cursor:pointer;user-select:none"><span id="othercaret">&#9656;</span> Late action items <span id="othercount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; on this __WHO__'s other CRs, requested by them, or where they're the responsible party &middot; click to expand</span></h2>
   <div id="otherais" style="display:none"></div>
 
-  <h2 id="oestoggle" style="cursor:pointer;user-select:none"><span id="oescaret">&#9662;</span> In-progress OE requests <span id="oescount"></span></h2>
+  <h2 id="oestoggle" style="cursor:pointer;user-select:none"><span id="oescaret">&#9662;</span> In-progress OE requests <span id="oescount"></span> <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; requests whose plan year has already started are not listed</span></h2>
   <div id="oes"></div>
 
   <h2>Monthly production <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; counted on Ready-for-Production date (Production date if RFP is empty)</span></h2>
@@ -1671,7 +1671,7 @@ function render(){
   const conns = allConns.filter(c=>!PAUSED.has(c.status));
   const onHold = held.filter(c=>c.status==='On Hold').length;
   const blocked = held.length - onHold;
-  const oes = (DATA.oes||[]).filter(o=>o.tc===curEmp)
+  const oes = (DATA.oes||[]).filter(o=>o.tc===curEmp && oePyOpen(o))
       .sort((a,b)=>String(a.pysd||'9999').localeCompare(String(b.pysd||'9999')));
   const months = [...new Set(DATA.production.map(p=>p.month))].sort();
   const thisMonth = months.at(-1);
@@ -1948,6 +1948,15 @@ function connCard(c){
   </div>`;
 }
 
+// An OE whose plan year has already started is no longer forward-looking work,
+// so it is left out of the in-progress list and its KPI. Those are chased from
+// the team overview's "OEs past their plan-year start" list instead. Measured
+// against the OE report's own date, falling back to the newest report loaded.
+// An OE with no plan year start cannot be judged, so it stays in.
+function oePyOpen(o){
+  const asOf = (RAW.dates && RAW.dates.oe) || DATA.generated;
+  return !o.pysd || !asOf || o.pysd >= asOf;
+}
 const oeStageIdx = s => { const i = OE_STAGES.findIndex(x=>x.toLowerCase()===String(s).toLowerCase());
   return i<0?0:i; };
 
@@ -2736,6 +2745,8 @@ const EXTERNAL = /carrier|client|partner|vendor/i;
 const $ = s => document.querySelector(s);
 const BASE = 'https://d24ep0r8pqsi0a.cloudfront.net';
 const crUrl = id => `${BASE}/ConnectivityRequests/ViewConnectivityRequest/${id}`;
+// same route the analyst page uses — an OE is addressed through its parent CR
+const oeUrl = (crId, oeId) => `${BASE}/OERequests/ViewConnectivityRequest/${crId}/ViewOERequest/${oeId}`;
 
 // ---------- helpers (same rules as the analyst / iSolved pages) ----------
 const localDay = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -2866,8 +2877,15 @@ function teamStats(){
     return m && !['no','false','0','n','none','-'].includes(m); }).length;
 
   // ---- OEs ----
-  const oeActive = oe.filter(r=>ACTIVE.has(txt(r['Status'])));
-  const oePast = oeActive.filter(r=>{ const p = toISO(r['PlanYearStartDate']); return p && p < asOf; });
+  // A draft is not real work yet, so it counts nowhere here. The analyst page
+  // reads the flag as Number(...)===1; this also accepts the "Yes"/"true"
+  // spellings an export can carry, so a truthy flag is never read as live.
+  const oeDraft = r => { const t = txt(r['IsDraftOERequest']).toLowerCase();
+    return r['IsDraftOERequest']===true || t==='1' || t==='true' || t==='yes'; };
+  const oeActive = oe.filter(r=>ACTIVE.has(txt(r['Status'])) && !oeDraft(r));
+  // an OE with no technical contact has nobody to chase, so it is not actionable
+  const oePast = oeActive.filter(r=>{ const p = toISO(r['PlanYearStartDate']);
+    return p && p < asOf && txt(r['TechnicalContact']); });
 
   // ---- workload per analyst: CRs + the action items pending on them ----
   const load = analysts.map(a=>({a,
@@ -3106,8 +3124,13 @@ function workloadSheet(){
     && ['Requirements Gathering','Resource Assignment','Pending Start']
        .some(s=>stageIs(r,s))).length;
   // OE requests are embedded active-only, but an uploaded sheet is filtered the
-  // same way — re-apply it so both paths agree
-  const oeActive = (RAW.oe || []).filter(r=>ACTIVE.has(txt(r['Status'])));
+  // same way — re-apply it so both paths agree. A request whose plan year has
+  // already started is then dropped: the queue counts forward-looking work, and
+  // those are chased from the Needs attention list instead. Same rule as the
+  // analyst page's oePyOpen(); an OE with no plan year start cannot be judged,
+  // so it stays in.
+  const oeActive = (RAW.oe || []).filter(r=>ACTIVE.has(txt(r['Status'])))
+    .filter(r=>{ const pysd = toISO(r['PlanYearStartDate']); return !pysd || pysd >= asOf; });
   const latestOf = (list, f) => { const ds = list.map(r=>toISO(r[f])).filter(Boolean).sort();
     return ds.length ? ds[ds.length-1] : null; };
   const latest = list => latestOf(list, 'Assignment Date');
@@ -3152,10 +3175,6 @@ function workloadSheet(){
     q.oeWaiting  = oeAt(myOe, 'Waiting for OE Data');
     q.oeSending  = oeAt(myOe, 'Sending OE File');
     q.oeConfirm  = oeAt(myOe, 'Get Carrier Confirmation', 'Completed');
-    // the plan year has already begun and the request is still open — the OE
-    // missed its deadline. ISO dates compare correctly as plain strings.
-    q.oePassed   = myOe.filter(r=>{ const d = toISO(r['PlanYearStartDate']);
-      return d && d < asOf; }).length;
     q.load  = q.notStarted + q.dataset + q.mapping + q.testing;   // workbook C = SUM(D:G)
     q.queue = q.load + q.forms;                                    // workbook Q = C + K
     // "Total CRs (year)": assigned EDI CRs created in that year, any status
@@ -3290,7 +3309,7 @@ function renderWorkload(){
     <thead>
       <tr><th class="lbl"></th><th colspan="2" class="grp">Load</th>
         <th colspan="6" class="grp">EDI</th><th colspan="6" class="grp">Forms</th>
-        <th colspan="7" class="grp">OE</th>
+        <th colspan="6" class="grp">OE</th>
         <th colspan="${w.years.length}" class="grp">Assigned CRs</th></tr>
       <tr><th class="lbl">Analyst</th>
         <th class="grp">Queue</th><th>vs expected</th>
@@ -3299,7 +3318,7 @@ function renderWorkload(){
         <th class="grp">Open</th><th>Mapping</th><th>Testing</th><th>Migration test</th>
         <th>Live</th><th>Last assigned</th>
         <th class="grp">Assigned</th><th>Not started</th><th>Gathering</th><th>Waiting for data</th>
-        <th>Sending file</th><th>Confirm / done</th><th>Passed PYSD</th>${yrCols}</tr>
+        <th>Sending file</th><th>Confirm / done</th>${yrCols}</tr>
     </thead>
     <tbody>
       ${w.rows.map(r=>`<tr>
@@ -3307,7 +3326,7 @@ function renderWorkload(){
         ${n(r.queue,'grp')}${capBar(r.queue, wlExpect)}
         ${n(r.notStarted,'grp')}${n(r.dataset)}${n(r.mapping)}${n(r.testing)}${n(r.rfp)}${dcell(r.ediDate)}
         ${n(r.forms, 'grp'+(r.forms>FORMS_WARN?' warn':''))}${n(r.fMapping)}${n(r.fTesting)}${n(r.fMig)}${n(r.fProd)}${dcell(r.formsDate)}
-        ${n(r.oe,'grp')}${n(r.oeNotStart)}${n(r.oeGather)}${n(r.oeWaiting)}${n(r.oeSending)}${n(r.oeConfirm)}${n(r.oePassed,'bad')}
+        ${n(r.oe,'grp')}${n(r.oeNotStart)}${n(r.oeGather)}${n(r.oeWaiting)}${n(r.oeSending)}${n(r.oeConfirm)}
         ${r.byYear.map((v,i)=>n(v, i?'':'grp')).join('')}
       </tr>`).join('')}
     </tbody>
@@ -3315,7 +3334,7 @@ function renderWorkload(){
       ${n(sum('queue'),'grp')}${capBar(sum('queue'), wlExpect*w.rows.length)}
       ${n(sum('notStarted'),'grp')}${n(sum('dataset'))}${n(sum('mapping'))}${n(sum('testing'))}${n(sum('rfp'))}<td></td>
       ${n(sum('forms'),'grp')}${n(sum('fMapping'))}${n(sum('fTesting'))}${n(sum('fMig'))}${n(sum('fProd'))}<td></td>
-      ${n(sum('oe'),'grp')}${n(sum('oeNotStart'))}${n(sum('oeGather'))}${n(sum('oeWaiting'))}${n(sum('oeSending'))}${n(sum('oeConfirm'))}${n(sum('oePassed'),'bad')}
+      ${n(sum('oe'),'grp')}${n(sum('oeNotStart'))}${n(sum('oeGather'))}${n(sum('oeWaiting'))}${n(sum('oeSending'))}${n(sum('oeConfirm'))}
       ${w.years.map((_,i)=>n(w.rows.reduce((a,r)=>a+r.byYear[i],0), i?'':'grp')).join('')}
     </tr></tfoot>
   </table></div>
@@ -3328,9 +3347,9 @@ function renderWorkload(){
     The OE columns are open-enrollment requests (active status only, from the OE report,
     bucketed across the seven OE stages) — they are a separate queue and are deliberately
     <b>not</b> included in "Queue" or the capacity bar, so those keep matching the workbook.
-    "Assigned" is every open OE request that names the analyst; "Passed PYSD" counts those
-    whose PlanYearStartDate is already behind ${w.asOf} — the plan year has started and the
-    request is still open — and is flagged red whenever it is not zero.
+    "Assigned" is every open OE request that names the analyst whose plan year has not
+    started yet; ones already past their PlanYearStartDate are left out here and listed
+    under Needs attention instead.
     Live Forms and the ${w.years.join(' / ')} columns count CRs of any status, so they include
     work that has already left the queue.${w.formsTypes.length?` Request type
     ${w.formsTypes.map(t=>'&ldquo;'+esc(t)+'&rdquo;').join(' / ')} is read as Forms; every other
@@ -3506,6 +3525,16 @@ function render(){
   const crLine = x => `<div><a class="lnk" href="${crUrl(x.r['Request ID'])}" target="_blank">#${x.r['Request ID']}</a>
     ${esc(txt(x.r['Customer']))} — ${esc(txt(x.r['Carrier']))} <span class="dt">${x.d}d</span>
     ${txt(x.r['Technical Contact'])?`· ${esc(txt(x.r['Technical Contact']))}`:'· <i>unassigned</i>'}</div>`;
+  // an OE without a parent CR id cannot be addressed in the app, so it stays
+  // plain text rather than becoming a link that 404s
+  const oeLine = r => { const oid = r['OERequestID'], cid = r['ConnectivityRequestID'];
+    const label = `OE #${oid}`;
+    const head = (cid!=null && cid!=='')
+      ? `<a class="lnk" href="${oeUrl(cid, oid)}" target="_blank" title="Open OE #${oid} in the app">${label}</a>`
+      : `<span class="dt">${label}</span>`;
+    return `<div>${head} ${esc(txt(r['ClientName']))} — ${esc(txt(r['CarrierName']))}
+      <span class="dt">${toISO(r['PlanYearStartDate'])}</span> · ${esc(txt(r['Stage']))}
+      · ${esc(txt(r['TechnicalContact'])||'unassigned')}</div>`; };
   const topCarriers = Object.entries(t.byCarrier).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const keyShare = t.holdRank.length ? pct(t.holdRank[0][1], t.internal.length) : 0;
   const migList = Object.entries(t.mig).sort((a,b)=>b[1]-a[1]);
@@ -3525,8 +3554,7 @@ function render(){
       t.stale90.slice().sort((a,b)=>b.d-a.d).slice(0,200).map(x=>`<div>${esc(txt(x.r['ActionItemTitle'])||('AI #'+x.r['ActionItemID']))}
         — ${esc(txt(x.r['ClientName']))} <span class="dt">${x.d}d</span> · on ${esc(x.on||'—')}</div>`).join('')],
     ['OEs past their plan-year start', t.oePast.length, t.oePast.length?'bad':'',
-      t.oePast.map(r=>`<div>${esc(txt(r['ClientName']))} — ${esc(txt(r['CarrierName']))}
-        <span class="dt">${toISO(r['PlanYearStartDate'])}</span> · ${esc(txt(r['Stage']))}</div>`).join('')],
+      t.oePast.map(oeLine).join('')],
     ['Action items waiting on carriers', t.ext.length, t.ext.length?'warn':'',
       `<div><i>${pct(t.ext.length, t.aiTotal)}% of all open action items are outside the team's control.
         Top carriers to escalate with:</i></div>`
