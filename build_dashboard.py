@@ -2830,8 +2830,14 @@ function teamStats(){
   const aiToday = new Date((RAW.dates.ai || RAW.generated)+'T00:00:00Z');
 
   const active = cr.filter(r=>ACTIVE.has(txt(r['Status'])));
-  const unassigned = active.filter(r=>!txt(r['Technical Contact']));
-  const stalled = active.filter(r=>['Blocked','On Hold'].includes(txt(r['Status'])));
+  // Blocked and on-hold CRs are active but nobody is advancing them, and they
+  // have their own "Blocked / on hold" row below — counting them again as
+  // unassigned or as aging would double-report the same stuck work. The two
+  // sets partition `active` exactly; Cancelled is already outside ACTIVE.
+  const PAUSED = new Set(['Blocked','On Hold']);
+  const stalled = active.filter(r=>PAUSED.has(txt(r['Status'])));
+  const moving  = active.filter(r=>!PAUSED.has(txt(r['Status'])));
+  const unassigned = moving.filter(r=>!txt(r['Technical Contact']));
   const analysts = [...new Set(active.map(r=>txt(r['Technical Contact'])).filter(Boolean))];
 
   // ---- intake / output / cancellation by month, plus cycle times ----
@@ -2862,7 +2868,7 @@ function teamStats(){
   const cycAll = cycWin.map(c=>c.d);
 
   // ---- aging of active work (survivorship-free view of the same question) ----
-  const ages = active.map(r=>{ const a = toISO(r['Assignment Date']);
+  const ages = moving.map(r=>{ const a = toISO(r['Assignment Date']);
     return a ? {r, d: daysBetween(a, today)} : null; }).filter(Boolean);
   const aged90 = ages.filter(x=>x.d>90), aged180 = ages.filter(x=>x.d>180);
 
@@ -2911,7 +2917,7 @@ function teamStats(){
   const out2026 = win.slice(-6).map(m=>prod.filter(p=>p.m===m).length);
   const avgOut = out2026.length ? out2026.reduce((a,b)=>a+b,0)/out2026.length : 0;
 
-  return {asOf, cr, active, unassigned, stalled, analysts, series, win, load,
+  return {asOf, cr, active, moving, unassigned, stalled, analysts, series, win, load,
     prod, ages, aged90, aged180, stale90, ext, internal, byCarrier, holdRank,
     stalledTest, inTesting, noAI, mig, migActive, oeActive, oePast, thisMonth, prevMonth,
     cycMean: mean(cycAll), cycP90: quantile(cycAll, .9), cycTrend, avgOut,
@@ -3508,7 +3514,7 @@ function render(){
     [nowProd,`Produced ${t.thisMonth||''}`, delta==null?'':`${delta>=0?'+':''}${delta}% vs ${t.prevMonth}`, ''],
     [t.cycMean+'d','Average cycle time', `p90 ${t.cycP90}d — the tail the average hides`, ''],
     [clear+' mo','To clear backlog', `at ~${Math.round(t.avgOut)}/month, no new intake`, ''],
-    [t.unassigned.length,'Unassigned', 'active CRs with no analyst', t.unassigned.length?'warn':''],
+    [t.unassigned.length,'Unassigned', 'active CRs with no analyst, excluding blocked / on hold', t.unassigned.length?'warn':''],
     [t.aged90.length,'Aging > 90d', `${t.aged180.length} over 180d`, t.aged90.length?'bad':''],
     [cancRate+'%','Cancelled', `${cancRecent} of ${createdWin} recent CRs already cancelled`, cancRate>=40?'warn':''],
     [t.oeActive.length,'Active OEs', `${t.oePast.length} past plan-year start`, t.oePast.length?'warn':''],
@@ -3578,9 +3584,13 @@ function render(){
 
   $('#risks').innerHTML = [
     ['Unassigned active CRs', t.unassigned.length, t.unassigned.length?'warn':'',
-      t.unassigned.map(r=>({r,d:ageOf(r)})).sort((a,b)=>b.d-a.d).map(crLine).join('')],
+      `<div><i>Blocked, on-hold and cancelled CRs are not counted — the ${t.stalled.length}
+        blocked / on hold are listed separately below.</i></div>`
+      + t.unassigned.map(r=>({r,d:ageOf(r)})).sort((a,b)=>b.d-a.d).map(crLine).join('')],
     ['Active CRs aging over 90 days', t.aged90.length, t.aged90.length?'bad':'',
-      t.aged90.slice().sort((a,b)=>b.d-a.d).map(crLine).join('')],
+      `<div><i>Days since assignment, over the ${t.moving.length} CRs actually moving —
+        blocked, on-hold and cancelled work is left out.</i></div>`
+      + t.aged90.slice().sort((a,b)=>b.d-a.d).map(crLine).join('')],
     ['In Testing with no test file sent', t.stalledTest.length, t.stalledTest.length?'bad':'',
       `<div><i>${pct(t.stalledTest.length, t.inTesting.length)}% of the ${t.inTesting.length} CRs in Testing — they look
         like progress but nothing has been sent.</i></div>`
