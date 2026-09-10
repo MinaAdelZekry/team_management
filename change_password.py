@@ -1,4 +1,4 @@
-"""Change the password on already-built dashboard pages — no Excel rebuild needed.
+"""Change the password on already-built dashboard pages - no Excel rebuild needed.
 
 Usage:
     python change_password.py <old-password> <new-password> [files...]

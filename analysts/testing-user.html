@@ -141,7 +141,7 @@
       busy(false);
       if(fromSaved){ showPrompt(); return; }
       errEl.textContent = (err && err.message==='badpw') ? 'Incorrect password.'
-        : 'Could not unlock — this page must be opened over HTTPS to decrypt.';
+        : 'Could not unlock - this page must be opened over HTTPS to decrypt.';
       if(card){ card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake'); }
       input.select();
     }

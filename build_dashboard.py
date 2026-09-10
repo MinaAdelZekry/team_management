@@ -26,7 +26,7 @@ from datetime import datetime
 # (no backend). A simple overlay is not enough: the content still sits in the
 # DOM and can be revealed by deleting the overlay in dev-tools. So instead
 # each generated page is ENCRYPTED at build time and shipped as ciphertext
-# inside a small unlock wrapper. The real HTML — and the embedded data — is
+# inside a small unlock wrapper. The real HTML - and the embedded data - is
 # genuinely NOT in the file until the correct password decrypts it in the
 # browser. Deleting DOM nodes reveals nothing, because there is nothing to
 # reveal until decryption.
@@ -60,7 +60,7 @@ ANALYST_DIR = "analysts"
 # Key = the analyst whose page it is; value = the names selectable in that
 # page's Employee picker (include the owner), or "*" for the whole team.
 # Anyone not listed here keeps the default page: their own rows, nobody else's.
-# Names must match the CR report's Technical Contact spelling exactly — the
+# Names must match the CR report's Technical Contact spelling exactly - the
 # build warns about any that don't.
 PAGE_ROSTERS = {
     "Alaa Yehia": ["Alaa Yehia", "Reem Radwan", "Aya Fathy", "Mai Atef"],
@@ -272,7 +272,7 @@ WRAPPER = r"""<!DOCTYPE html>
       busy(false);
       if(fromSaved){ showPrompt(); return; }
       errEl.textContent = (err && err.message==='badpw') ? 'Incorrect password.'
-        : 'Could not unlock — this page must be opened over HTTPS to decrypt.';
+        : 'Could not unlock - this page must be opened over HTTPS to decrypt.';
       if(card){ card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake'); }
       input.select();
     }
@@ -318,7 +318,7 @@ ACTIVE = ["In Progress", "Blocked", "On Hold", "Not Started"]
 
 # --- report column checks -------------------------------------------------
 # records() keeps only the columns that exist, so a renamed column would vanish
-# silently and still "build successfully" — e.g. a renamed Technical Contact
+# silently and still "build successfully" - e.g. a renamed Technical Contact
 # leaves every CR unassigned and every analyst page empty. Check up front and
 # refuse to build instead, pointing at the likely new name.
 #
@@ -382,7 +382,7 @@ def expected_groups(required, keep, aliases=()):
 
 def check_columns(label, df, groups, nonempty=()):
     """Return (problem_lines, warn_lines). Every column the code reads must be
-    present — anything missing is reported, with the most likely new name."""
+    present - anything missing is reported, with the most likely new name."""
     cols = list(df.columns)
     have = set(cols)
     known = {c for g in groups for c in g}
@@ -403,10 +403,10 @@ def check_columns(label, df, groups, nonempty=()):
         share = _blank_share(df[c])
         if share == 1.0:
             warn.append(f"  [{label}] column '{c}' exists but every row is empty "
-                        f"— pages built from it will be blank")
+                        f"- pages built from it will be blank")
         elif share >= 0.80:
             warn.append(f"  [{label}] column '{c}' is {share:.0%} empty "
-                        f"— rows without it cannot be attributed")
+                        f"- rows without it cannot be attributed")
     return problems, warn
 
 
@@ -423,7 +423,7 @@ def report_column_problems(checks, warn_only=False):
     if not fatal:
         return
     msg = ("\n" + "=" * 70
-           + f"\nCOLUMN MISMATCH — {len(fatal)} column(s) the build reads are not "
+           + f"\nCOLUMN MISMATCH - {len(fatal)} column(s) the build reads are not "
              "in the reports:\n\n" + "\n".join(fatal)
            + "\n\nA column was probably renamed in the export. Fix it by adding the "
              "new name ALONGSIDE the old one (never replacing it) in:\n"
@@ -467,7 +467,7 @@ def _txt(v):
 # --- per-analyst slicing -------------------------------------------------
 # These mirror clientAlike()/carrierAlike()/aiAlike() in the dashboard JS so an
 # analyst's page carries exactly the action items the full page would attach to
-# them — no more (which would leak a colleague's rows) and no less (which would
+# them - no more (which would leak a colleague's rows) and no less (which would
 # silently change their counts).
 def _client_alike(a, b):
     return bool(a and b and (a == b or
@@ -510,7 +510,7 @@ def analyst_slice(raw, analyst):
     name them as requestor / responsible party), and the matching migration
     rows. Nothing belonging solely to another analyst is included.
 
-    `analyst` is one name, or an iterable of names for a roster page — the
+    `analyst` is one name, or an iterable of names for a roster page - the
     group is then treated as one owner, so a row is kept when it belongs to
     any member."""
     names = {analyst} if isinstance(analyst, str) else set(analyst)
@@ -586,8 +586,8 @@ def records(df, keep):
 
 
 def find_ms(paths):
-    """Return the MigrationSummary rows from wherever they live — sheets in any
-    of the given workbooks, or a standalone file — identified by the presence of
+    """Return the MigrationSummary rows from wherever they live - sheets in any
+    of the given workbooks, or a standalone file - identified by the presence of
     the MigrationTestingDate column. None if not present.
 
     The report splits migrations across several sheets (e.g. "eBN Migrations"
@@ -645,7 +645,7 @@ def main():
     ms = find_ms(args)
 
     # verify the reports still carry the columns this build reads, before any of
-    # them are touched — a rename must stop the build, not silently empty it
+    # them are touched - a rename must stop the build, not silently empty it
     checks = [("CR", cr, expected_groups(CR_REQUIRED, CR_KEEP, CR_ALIASES), CR_NONEMPTY),
               ("AI", ai, expected_groups(AI_REQUIRED, AI_KEEP, AI_ALIASES), AI_NONEMPTY)]
     if oe is not None:
@@ -660,7 +660,7 @@ def main():
             ai[c] = pd.to_datetime(ai[c], errors="coerce")
 
     # embed only rows the dashboards can use: every active CR (including ones
-    # with no technical contact — the team page counts those as unassigned),
+    # with no technical contact - the team page counts those as unassigned),
     # anything with a prod/RFP date, anything an action item points at, and
     # anything created in the last ~13 months so the team page's intake trend
     # is complete (CRs later cancelled still count as intake)
@@ -693,7 +693,7 @@ def main():
     if no_data:
         # publish empty shells: the reports are still read above (so the column
         # checks still run and analyst names are still validated) but nothing is
-        # embedded — the page is populated only by what the viewer uploads
+        # embedded - the page is populated only by what the viewer uploads
         raw = {"generated": today, "dates": {"cr": None, "ai": None, "oe": None},
                "cr": [], "ai": [], "oe": [], "ms": []}
 
@@ -716,7 +716,7 @@ def main():
     # `page_id` namespaces the browser's saved-upload cache. It matters because
     # an upload is sliced before it is stored (see ownerFilter() at the upload
     # handler): a cache written by a narrower roster holds too few rows to
-    # widen later, so roster pages fold the group into the id — change the
+    # widen later, so roster pages fold the group into the id - change the
     # group and the stale copy is simply never read again.
     def page(role, title, who, body_json, nav, owner="", hide_upload=False,
              roster=(), page_id=""):
@@ -763,7 +763,7 @@ def main():
     # (except the PAGE_ROSTERS pages, which carry their whole group)
     analyst_pws = load_analyst_passwords()
     if not analyst_pws:
-        print(f"No {ANALYST_PW_FILE} found — skipped per-analyst pages.")
+        print(f"No {ANALYST_PW_FILE} found - skipped per-analyst pages.")
         return
     in_data = {_txt(r.get("Technical Contact")) for r in full_raw["cr"]}
     in_data.discard("")
@@ -843,7 +843,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     --blue:#7aa7cf; --blue-bg:#1c2a38;
     --head:#0d1319; --pop:#0d1319; --th-bg:#202a34; --bar:#3a4a45;
     --ring:rgba(232,237,242,.35); --chip-mute:#2c3742; --chip-mute-ink:#b6c2cd;
-    /* dark stage colors — same hues re-selected for the dark surface */
+    /* dark stage colors - same hues re-selected for the dark surface */
     --s0:#7b8ca6; --s1:#6b95d6; --s2:#4a6fae; --s3:#1897ad;
     --s4:#1fa28e; --s5:#4fa960; --s6:#c08228; --s7:#2f9d85;
     color-scheme:dark;
@@ -1171,7 +1171,7 @@ const STAGE_COLS = ["Intake Date","Requirements Gathering","Resource Assignment"
   "Dataset Validation","Mapping","Testing","Ready For Production","Production"];
 // The CR export renamed "Created Date" to "Intake Date". Rows restored from a
 // browser cache or uploaded from an older export still carry the old name, and
-// a cached upload is never replaced by a new build — without this fold every
+// a cached upload is never replaced by a new build - without this fold every
 // intake-derived figure (Pending Start, intake trend, ledger, workload) would
 // silently read undefined, with no column warning to explain it.
 function normCr(rows){
@@ -1187,7 +1187,7 @@ const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
 const OE_ACTIVE = new Set(["In Progress","Not Started"]);
 // A draft is not real work yet. The flag arrives as 1/0, true/false or
 // "Yes"/"No" depending on the export, so all the truthy spellings are accepted
-// — reading only Number(...)===1 would let a "Yes" draft through as live.
+// - reading only Number(...)===1 would let a "Yes" draft through as live.
 const oeDraft = r => { const t = txt(r['IsDraftOERequest']).toLowerCase();
   return r['IsDraftOERequest']===true || t==='1' || t==='true' || t==='yes'; };
 const oeLive = r => OE_ACTIVE.has(txt(r['Status'])) && !oeDraft(r);
@@ -1198,7 +1198,7 @@ const MS = {"Requirements Gathering":"RG","Resource Assignment":"RA","Dataset Va
   "Mapping":"Mapping","Testing":"Testing","Ready For Production":"Ready for Prod",
   "Production":"Production","First Test File":"First test file","First Production File":"First prod file"};
 const $ = s => document.querySelector(s);
-const fmt = d => d || '—';
+const fmt = d => d || '-';
 const BASE = 'https://d24ep0r8pqsi0a.cloudfront.net';
 const crUrl = id => `${BASE}/ConnectivityRequests/ViewConnectivityRequest/${id}`;
 const aiUrl = (crId, aiId) => `${BASE}/ActionItems/ViewConnectivityRequest/${crId}/ViewActionItem/${aiId}`;
@@ -1258,7 +1258,7 @@ function norm(s){
 }
 const txt = v => (v==null ? '' : String(v).trim());
 const daysBetween = (iso, today) => Math.floor((today - new Date(iso+'T00:00:00Z'))/86400000);
-// working days in the same span — the page role decides the weekend days
+// working days in the same span - the page role decides the weekend days
 function workDaysBetween(iso, today){
   const start = new Date(iso+'T00:00:00Z');
   const days = Math.floor((today - start)/86400000);
@@ -1271,10 +1271,10 @@ function workDaysBetween(iso, today){
   }
   return wd;
 }
-const dur = (d, wd) => d!=null ? `${d}d (${wd}wd)` : '—';
+const dur = (d, wd) => d!=null ? `${d}d (${wd}wd)` : '-';
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 // responsible party for an AI = its CurrentlyPendingOn value
-const respOf = i => i.on || '—';
+const respOf = i => i.on || '-';
 // speech-bubble icon whose hover popup shows the AI's last comment
 const cmtPop = i => {
   if(!i.cmt) return '';
@@ -1331,7 +1331,7 @@ function migOf(r){   // the platform migrated from ("eBenefits Network"), "No", 
   return /migration/i.test(txt(r['Request Type'])) ? 'Yes' : null;
 }
 const isMig = m => !!m && !['no','false','0','n','none','-'].includes(String(m).toLowerCase());
-const migLabel = m => m==null ? '—' : m;
+const migLabel = m => m==null ? '-' : m;
 
 // ---------- core processing (used for both embedded data and uploads) ----------
 // Testing starts at the First Test File date; but if that date is more than
@@ -1355,7 +1355,7 @@ function process(crRows, aiRows, oeRows, generated){
   // all open AIs, keyed by client+carrier; pending clock = last comment date, else start date
   const aiItems = [];
   for(const r of aiRows){
-    // comments from "System Admin" are automated due-date reminders — ignore
+    // comments from "System Admin" are automated due-date reminders - ignore
     // the comment and its date entirely
     const isBot = /^system\s*admin$/i.test(txt(r['LastCommentOwner']));
     const last = isBot ? null : toISO(r['LastCommentDate']);
@@ -1527,7 +1527,7 @@ function process(crRows, aiRows, oeRows, generated){
 // Browser storage is per-ORIGIN, so every page in this site shares one
 // IndexedDB. An analyst page stores its data already sliced to that analyst, so
 // with a shared key its upload would overwrite the full copy the manager pages
-// read back — which made index.html show only one analyst. Scope the key to the
+// read back - which made index.html show only one analyst. Scope the key to the
 // owner: analyst pages get their own slot, the shared views keep the full one.
 const DB_KEY = 'analystDash2' + (__PAGEID__ ? ':' + __PAGEID__ : '');
 const idb = () => new Promise((res,rej)=>{
@@ -1558,9 +1558,9 @@ RAW.dates = RAW.dates || {};
 
 // ROSTER is who this page may show: one name on a default per-analyst page, the
 // group from PAGE_ROSTERS on a roster page, empty on the shared manager views.
-// OWNER is set only when the page belongs to a single person — it also hides the
+// OWNER is set only when the page belongs to a single person - it also hides the
 // cross-analyst UI (rank, team totals, report), so a roster page leaves it empty.
-// The page ships pre-sliced, but the viewer can upload a full CR/AI export — so
+// The page ships pre-sliced, but the viewer can upload a full CR/AI export - so
 // re-apply the same slice to anything that replaces RAW, keeping the page a view
 // of those people's work. Mirrors analyst_slice() in build_dashboard.py.
 const OWNER = __OWNER__;
@@ -1596,7 +1596,7 @@ async function restoreSaved(){
     localStorage.removeItem(DB_KEY);
   }catch(e){}
   // An uploaded sheet is kept regardless of its date: whatever the viewer last
-  // uploaded is what they see, and it survives reloads. No date comparison —
+  // uploaded is what they see, and it survives reloads. No date comparison -
   // the embedded build data is only a starting point until someone uploads.
   // Consequence: once uploaded, a newly deployed build will NOT replace this
   // copy. Clearing it needs the browser's own "clear site data".
@@ -1725,7 +1725,7 @@ function render(){
 }
 
 // people excluded from production rankings (e.g. leads); their own counts still
-// display — they just don't occupy a rank or count toward anyone's "of N"
+// display - they just don't occupy a rank or count toward anyone's "of N"
 const RANK_EXCLUDE = new Set(['dina medhat']);
 const inRank = name => !!name && !RANK_EXCLUDE.has(String(name).trim().toLowerCase());
 // rank an employee by production count among ranked people with production CRs
@@ -1747,14 +1747,14 @@ function showRankList(scope){
   const counts = {};
   DATA.production.forEach(p=>{ if(p.tc && inRank(p.tc) && pred(p)) counts[p.tc]=(counts[p.tc]||0)+1; });
   const list = Object.entries(counts).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
-  const L = [`PRODUCTION RANKING — ${label}`, ''];
+  const L = [`PRODUCTION RANKING - ${label}`, ''];
   let r = 0, prev = null;
   list.forEach(([name,c],idx)=>{
     if(c!==prev){ r = idx+1; prev = c; }
-    L.push(`#${String(r).padStart(2,' ')}  ${name} — ${c} CR${c>1?'s':''}${name===curEmp?'   ←':''}`);
+    L.push(`#${String(r).padStart(2,' ')}  ${name} - ${c} CR${c>1?'s':''}${name===curEmp?'   ←':''}`);
   });
   L.push('', `${list.length} ${ROLE==='tc'?'analysts':'iSolved contacts'} with production in ${label}`);
-  $('#reptitle').textContent = `Production ranking — ${label}`;
+  $('#reptitle').textContent = `Production ranking - ${label}`;
   $('#reptext').value = L.join('\n');
   $('#repmodal').classList.add('open');
 }
@@ -1789,7 +1789,7 @@ function renderStageAvgs(){
   const RFP_I = STAGE_COLS.indexOf('Ready For Production');
   const mine = (DATA.stageRows||[]).filter(s=>s.tc===curEmp && (s.sd[RFP_I] || s.sd[RFP_I+1]));
   // a CR belongs to the year of its production date (RFP falling back to
-  // Production — the monthly production rule); all of its completed stage
+  // Production - the monthly production rule); all of its completed stage
   // intervals count toward that year, whenever each stage finished
   const prodYearOf = s => (s.sd[RFP_I] || s.sd[RFP_I+1]).slice(0,4);
   const dataYear = String(DATA.generated).slice(0,4);
@@ -1805,7 +1805,7 @@ function renderStageAvgs(){
   // back to Production date) with the rank among everyone who produced then
   const yrank = prodRank(curEmp, p=>p.month.slice(0,4)===curAvgYear);
   // a single-analyst page holds only their rows, so team ranking is meaningless
-  // there ("rank #1 of 1") — show the bare count instead
+  // there ("rank #1 of 1") - show the bare count instead
   $('#avgprodcount').innerHTML = `${yrank.c} CR${yrank.c===1?'':'s'} in ${curAvgYear}`
     + (!OWNER && yrank.c && yrank.ranked ? ` &middot; <a class="lnk rankbtn" data-scope="year" title="show the full ranking">rank #${yrank.r} of ${yrank.n}</a>` : '');
   const ints = [];   // completed intervals on this year's produced CRs
@@ -1835,7 +1835,7 @@ function renderStageAvgs(){
       <span class="sval">${(avg/7).toFixed(1)} wk</span>
       <span class="scnt">${kept.length} CR${kept.length>1?'s':''}${cut.length?` &middot; <a class="outbtn" data-i="${i}" title="show / hide the removed CRs">${cut.length} outlier${cut.length>1?'s':''} removed</a>`:''}</span>
     </div>${cut.length?`<div class="souts" id="souts-${i}" style="display:none">
-      ${cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} — ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
+      ${cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} - ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
     </div>`:''}`).join('')}
   </div>` : `<div class="empty">No production CRs with measurable stages in ${curAvgYear} for this employee.</div>`;
   document.querySelectorAll('#stageavg .outbtn').forEach(b=>{
@@ -1857,20 +1857,20 @@ function aiTable(items){
   const crIdOf = a => a.cr ? a.cr.id : (a.crid!=null ? a.crid : null);
   const aiCell = a => crIdOf(a)!=null && a.id!=null
     ? `<a class="lnk" href="${aiUrl(crIdOf(a),a.id)}" target="_blank">${a.title||('AI #'+a.id)}</a>`
-    : (a.title||(a.id!=null?'AI #'+a.id:'—'));
+    : (a.title||(a.id!=null?'AI #'+a.id:'-'));
   return `<table>
-    <tr><th>Client — Carrier</th><th>CR</th><th>CR status</th><th>Action item</th><th>Responsible</th><th>Requestor</th><th>Last activity</th><th>Days pending</th></tr>
+    <tr><th>Client - Carrier</th><th>CR</th><th>CR status</th><th>Action item</th><th>Responsible</th><th>Requestor</th><th>Last activity</th><th>Days pending</th></tr>
     ${items.map(a=>`<tr>
-      <td>${a.client} — ${a.carrier}</td>
-      <td class="dt">${crIdOf(a)!=null?`<a class="lnk" href="${crUrl(crIdOf(a))}" target="_blank">#${crIdOf(a)}</a>`:'—'}</td>
-      <td>${a.cr?a.cr.status:'—'}</td>
+      <td>${a.client} - ${a.carrier}</td>
+      <td class="dt">${crIdOf(a)!=null?`<a class="lnk" href="${crUrl(crIdOf(a))}" target="_blank">#${crIdOf(a)}</a>`:'-'}</td>
+      <td>${a.cr?a.cr.status:'-'}</td>
       <td>${aiCell(a)}${cmtPop(a)}</td>
       <td>${respOf(a)}</td>
-      <td>${a.req||'—'}</td>
-      <td class="dt">${a.eff||'—'}${a.noComment?'*':''}</td>
+      <td>${a.req||'-'}</td>
+      <td class="dt">${a.eff||'-'}${a.noComment?'*':''}</td>
       <td class="dt">${dur(a.days,a.wdays)}</td></tr>`).join('')}
   </table>
-  ${items.some(a=>a.noComment)?'<div class="ainote">* no comments yet — dates and days pending count from when the AI was created.</div>':''}`;
+  ${items.some(a=>a.noComment)?'<div class="ainote">* no comments yet - dates and days pending count from when the AI was created.</div>':''}`;
 }
 
 function tipsFor(stages, sd, idx){
@@ -1881,8 +1881,8 @@ function tipsFor(stages, sd, idx){
     if(start){
       const end = nextStart(i);
       if(end){ const e = new Date(end+'T00:00:00Z');
-        return `${s}: started ${start} — took ${dur(daysBetween(start,e),workDaysBetween(start,e))} — next phase ${end}`; }
-      if(i>=idx && i<stages.length-1) return `${s}: started ${start} — ${dur(daysBetween(start,today),workDaysBetween(start,today))} so far (in progress)`;
+        return `${s}: started ${start} - took ${dur(daysBetween(start,e),workDaysBetween(start,e))} - next phase ${end}`; }
+      if(i>=idx && i<stages.length-1) return `${s}: started ${start} - ${dur(daysBetween(start,today),workDaysBetween(start,today))} so far (in progress)`;
       return `${s}: started ${start}`;
     }
     if(i===idx) return `${s}: in progress`;
@@ -1919,12 +1919,12 @@ function connCard(c){
       return o>=10?'due-over':(o>=4?'due-warn':'due-ok'); };
     const dueTag = i => i.due ? ` &middot; due <span class="dt ${dueCls(i.due)}">${i.due}</span>` : '';
     const list = `<div class="airow head"><span>Action item</span><span>Responsible</span><span>Requestor</span><span>Last activity</span><span class="num">Days pending</span><span>Due date</span></div>`
-      + a.items.map(i=>`<div class="airow"><span>${aiLink(i)}${cmtPop(i)}</span><span class="pend">${respOf(i)}</span><span>${i.req||'—'}</span><span class="dt">${i.eff||'—'}${i.noComment?'*':''}</span><span class="dt num">${dur(i.days,i.wdays)}</span><span class="dt">${i.due?`<span class="${dueCls(i.due)}">${i.due}</span>`:'—'}</span></div>`).join('');
+      + a.items.map(i=>`<div class="airow"><span>${aiLink(i)}${cmtPop(i)}</span><span class="pend">${respOf(i)}</span><span>${i.req||'-'}</span><span class="dt">${i.eff||'-'}${i.noComment?'*':''}</span><span class="dt num">${dur(i.days,i.wdays)}</span><span class="dt">${i.due?`<span class="${dueCls(i.due)}">${i.due}</span>`:'-'}</span></div>`).join('');
     const note = a.items.some(i=>i.noComment)
-      ? '<div class="ainote">* no comments yet — dates and days pending count from when the AI was created.</div>' : '';
+      ? '<div class="ainote">* no comments yet - dates and days pending count from when the AI was created.</div>' : '';
     aibox = `<div class="aibox">
       ${a.count} open AI${a.count>1?'s':''} &middot; latest: <b>${aiLink(L)}</b>${cmtPop(L)},
-      pending on <span class="pend">${L.on||'—'}</span> for <b>${dur(L.days,L.wdays)}</b>
+      pending on <span class="pend">${L.on||'-'}</span> for <b>${dur(L.days,L.wdays)}</b>
       &middot; ${L.noComment?`created <span class="dt">${fmt(L.eff)}</span> <i>· no comments yet</i>`:`last activity <span class="dt">${fmt(L.eff)}</span>${L.owner?` by ${L.owner}`:''}`}${dueTag(L)}
       <details class="ailist"><summary>${a.count>1?'All open items':'Item details'}</summary><div class="aitable">${list}</div>${note}</details>
     </div>`;
@@ -1933,7 +1933,7 @@ function connCard(c){
   }
   return `<div class="conn" id="conn-${c.id}">
     <div class="top">
-      <div class="name"><a class="lnk" href="${crUrl(c.id)}" target="_blank">${c.carrier} <small>— ${c.customer}</small></a> <small class="dt">CR #${c.id}</small></div>
+      <div class="name"><a class="lnk" href="${crUrl(c.id)}" target="_blank">${c.carrier} <small>- ${c.customer}</small></a> <small class="dt">CR #${c.id}</small></div>
       <div class="chips">
         ${isForms(c)?`<span class="chip ctype">${c.type}</span>`:''}
         ${isMig(c.mig)?`<span class="chip" style="background:var(--blue-bg);color:var(--blue)">${/^yes$/i.test(c.mig)?'Migration':c.mig}</span>`
@@ -1946,12 +1946,12 @@ function connCard(c){
     <div class="rail">${rail}</div>
     <div class="meta meta4">
       <div>Stage <b>${isForms(c)?c.type:`${c.stage} (${idx+1}/${STAGES.length})`}</b></div>
-      <div>Instance <b>${c.instance||'—'}</b></div>
+      <div>Instance <b>${c.instance||'-'}</b></div>
       <div>Migration <b>${migLabel(c.mig)}</b></div>
       <div>Assigned <b class="dt">${fmt(c.assigned)}</b></div>
       <div>Last CR update <b class="dt">${fmt(c.lastCr)}</b></div>
       <div>Last activity (CR or AI) <b class="dt">${fmt(c.lastAny)}</b></div>
-      <div>${OTHER_ROLE_LABEL} <b>${c.isolved||'—'}</b></div>
+      <div>${OTHER_ROLE_LABEL} <b>${c.isolved||'-'}</b></div>
       ${ms}
     </div>
     ${aibox}
@@ -1988,7 +1988,7 @@ function oeCard(o){
       <i style="background:${OE_COLORS[i]}${i>idx?';opacity:.22':''}"></i><span>${OE_SHORT[i]}</span></div>`).join('');
   return `<div class="conn">
     <div class="top">
-      <div class="name"><a class="lnk" href="${oeUrl(o.crId,o.id)}" target="_blank">${o.carrier} <small>— ${o.client}</small></a> <small class="dt">OE #${o.id} &middot; CR #${o.crId}</small></div>
+      <div class="name"><a class="lnk" href="${oeUrl(o.crId,o.id)}" target="_blank">${o.carrier} <small>- ${o.client}</small></a> <small class="dt">OE #${o.id} &middot; CR #${o.crId}</small></div>
       <div class="chips">
         ${o.draft?'<span class="chip status-notstarted">Draft</span>':''}
         ${o.dataChanges==='Yes'?'<span class="chip idle-warn">iSolved data changes</span>':''}
@@ -2004,11 +2004,11 @@ function oeCard(o){
       <div>Client data expected <b class="dt">${fmt(o.expected)}</b></div>
       <div>Data ready <b class="dt">${fmt(o.dataReady)}</b></div>
       <div>OE file submitted <b class="dt">${fmt(o.submitted)}</b></div>
-      <div>iSolved data changes <b>${o.dataChanges||'—'}</b></div>
-      <div>Updated group structure <b>${o.groupStructure||'—'}</b></div>
-      <div>Can resume prod before PYSD <b>${o.canResume||'—'}</b></div>
-      <div>Resumed production <b>${o.resumed||'—'}</b></div>
-      <div>${OTHER_ROLE_LABEL} <b>${o.isolved||'—'}</b></div>
+      <div>iSolved data changes <b>${o.dataChanges||'-'}</b></div>
+      <div>Updated group structure <b>${o.groupStructure||'-'}</b></div>
+      <div>Can resume prod before PYSD <b>${o.canResume||'-'}</b></div>
+      <div>Resumed production <b>${o.resumed||'-'}</b></div>
+      <div>${OTHER_ROLE_LABEL} <b>${o.isolved||'-'}</b></div>
       <div>Created <b class="dt">${fmt(o.created)}</b>${o.createdBy?` by ${o.createdBy}`:''}</div>
     </div>
   </div>`;
@@ -2037,7 +2037,7 @@ function renderProd(months, mine){
   $('#mon').onchange = e => { curMonth = e.target.value; render(); };
   const mrank = prodRank(curEmp, p=>p.month===curMonth);
   // team total / share / rank compare against the whole team, so they only make
-  // sense on the shared pages — an analyst page carries just their own rows
+  // sense on the shared pages - an analyst page carries just their own rows
   $('#prodcount').innerHTML = `<b>${rows.length}</b> for ${curEmp}`
     + (!OWNER ? ` &middot; team total ${team}` : '')
     + (!OWNER && team ? ` &middot; <b>${Math.round(rows.length/team*1000)/10}%</b> of team total` : '')
@@ -2045,8 +2045,8 @@ function renderProd(months, mine){
   $('#prodtable').innerHTML = rows.length ? `<table>
     <tr><th>CR</th><th>Customer - Carrier</th><th>Ready for Production date</th><th>Production date</th><th>Status</th><th></th></tr>
     ${rows.map(p=>`<tr id="prod-${p._i}"><td class="dt"><a class="lnk" href="${crUrl(p.id)}" target="_blank">#${p.id}</a></td><td>${p.customer} - ${p.carrier}</td>
-      <td class="dt">${p.rfp||'—'}</td>
-      <td class="dt">${p.prod||'—'}</td><td>${p.status}</td>
+      <td class="dt">${p.rfp||'-'}</td>
+      <td class="dt">${p.prod||'-'}</td><td>${p.status}</td>
       <td><button class="copybtn" data-copy="prod:${p._i}" title="Copy this production record">Copy</button></td></tr>`).join('')}
   </table>` : '<div class="empty">No production CRs for this employee in this month.</div>';
 
@@ -2059,15 +2059,15 @@ function renderProd(months, mine){
 // ---------- analyst report ----------
 function connReport(c){
   const L = [];
-  L.push(`${c.carrier} — ${c.customer} (CR #${c.id})`);
+  L.push(`${c.carrier} - ${c.customer} (CR #${c.id})`);
   L.push(crUrl(c.id));
   L.push(`Status: ${c.status} · Stage: ${isForms(c)?c.type:`${c.stage}${testStar(c)?' * (no test file sent yet)':''}`} · Migration: ${migLabel(c.mig)}`);
-  L.push(`Assigned: ${c.assigned||'—'} · Last CR update: ${c.lastCr||'—'} · Last activity: ${c.lastAny||'—'}${c.idleDays!=null?` (${dur(c.idleDays,c.idleWdays)} idle)`:''}`);
+  L.push(`Assigned: ${c.assigned||'-'} · Last CR update: ${c.lastCr||'-'} · Last activity: ${c.lastAny||'-'}${c.idleDays!=null?` (${dur(c.idleDays,c.idleWdays)} idle)`:''}`);
   if(c.ai){
     L.push(`Action items (${c.ai.count} open):`);
     c.ai.items.forEach(i=>{
-      L.push(`  - ${i.title||('AI #'+i.id)} — responsible ${respOf(i)} · requested by ${i.req||'—'} · pending for ${dur(i.days,i.wdays)}`
-        +` · ${i.noComment?`created ${i.eff||'—'}, no comments yet`:`last activity ${i.eff||'—'}`}${i.due?` · due ${i.due}`:''}`);
+      L.push(`  - ${i.title||('AI #'+i.id)} - responsible ${respOf(i)} · requested by ${i.req||'-'} · pending for ${dur(i.days,i.wdays)}`
+        +` · ${i.noComment?`created ${i.eff||'-'}, no comments yet`:`last activity ${i.eff||'-'}`}${i.due?` · due ${i.due}`:''}`);
       if(i.id!=null) L.push(`    ${aiUrl(c.id,i.id)}`);
     });
   } else L.push(`Action items: none open`);
@@ -2076,25 +2076,25 @@ function connReport(c){
 
 function prodReport(p){
   return [
-    `${p.customer} — ${p.carrier} (CR #${p.id})`,
+    `${p.customer} - ${p.carrier} (CR #${p.id})`,
     crUrl(p.id),
-    `Status: ${p.status} · Ready for Production: ${p.rfp||'—'} · Production: ${p.prod||'—'}`,
-    `Technical contact: ${p.tc||'—'}`
+    `Status: ${p.status} · Ready for Production: ${p.rfp||'-'} · Production: ${p.prod||'-'}`,
+    `Technical contact: ${p.tc||'-'}`
   ];
 }
 
 function oeReport(o){
   const idx = oeStageIdx(o.stage);
   const L = [];
-  L.push(`${o.carrier} — ${o.client} (OE #${o.id} · CR #${o.crId})`);
+  L.push(`${o.carrier} - ${o.client} (OE #${o.id} · CR #${o.crId})`);
   L.push(oeUrl(o.crId, o.id));
   L.push(`Status: ${o.status} · Stage: ${o.stage} (${idx+1}/${OE_STAGES.length})${o.type?` · ${o.type}`:''}${o.draft?' · Draft':''}`);
-  L.push(`Plan year start: ${o.pysd||'—'} · Client data expected: ${o.expected||'—'}`);
-  L.push(`Data ready: ${o.dataReady||'—'} · OE file submitted: ${o.submitted||'—'}`);
-  L.push(`iSolved data changes: ${o.dataChanges||'—'} · Updated group structure: ${o.groupStructure||'—'}`);
-  L.push(`Can resume production before PYSD: ${o.canResume||'—'} · Resumed production: ${o.resumed||'—'}`);
-  L.push(`isolved contact: ${o.isolved||'—'} · Technical contact: ${o.tc||'—'}`);
-  L.push(`Created: ${o.created||'—'}${o.createdBy?` by ${o.createdBy}`:''}`);
+  L.push(`Plan year start: ${o.pysd||'-'} · Client data expected: ${o.expected||'-'}`);
+  L.push(`Data ready: ${o.dataReady||'-'} · OE file submitted: ${o.submitted||'-'}`);
+  L.push(`iSolved data changes: ${o.dataChanges||'-'} · Updated group structure: ${o.groupStructure||'-'}`);
+  L.push(`Can resume production before PYSD: ${o.canResume||'-'} · Resumed production: ${o.resumed||'-'}`);
+  L.push(`isolved contact: ${o.isolved||'-'} · Technical contact: ${o.tc||'-'}`);
+  L.push(`Created: ${o.created||'-'}${o.createdBy?` by ${o.createdBy}`:''}`);
   return L;
 }
 
@@ -2107,7 +2107,7 @@ function buildReport(){
     .sort((a,b)=>String(a.pysd||'9999').localeCompare(String(b.pysd||'9999')));
   const openAIs = conns.reduce((s,c)=>s+(c.ai?c.ai.count:0),0);
   const L = [];
-  L.push(`CONNECTIVITY REPORT — ${curEmp}`);
+  L.push(`CONNECTIVITY REPORT - ${curEmp}`);
   L.push(`Data as of ${dataDates(', ')} · wd = working days (${WEEKEND_LABEL} excluded)`);
   // same split as the page: on-hold and blocked are not "in progress"
   const nHold = conns.filter(c=>c.status==='On Hold').length;
@@ -2121,7 +2121,7 @@ function buildReport(){
   if(sendingOes.length){
     L.push('');
     L.push(`${'='.repeat(70)}`);
-    L.push(`OE REQUESTS — SENDING OE FILE (${sendingOes.length}):`);
+    L.push(`OE REQUESTS - SENDING OE FILE (${sendingOes.length}):`);
     sendingOes.forEach((o,n)=>{
       L.push('');
       oeReport(o).forEach((t,j)=>L.push(j===0 ? `${n+1}) ${t}` : `   ${t}`));
@@ -2130,18 +2130,18 @@ function buildReport(){
   if(others.length){
     L.push('');
     L.push(`${'='.repeat(70)}`);
-    L.push(`LATE ACTION ITEMS — on this __WHO__'s other CRs, requested by them, or where they're the responsible party (${others.length}):`);
+    L.push(`LATE ACTION ITEMS - on this __WHO__'s other CRs, requested by them, or where they're the responsible party (${others.length}):`);
     others.forEach(a=>{
       const cid = a.cr ? a.cr.id : (a.crid!=null ? a.crid : null);
-      L.push(`  - ${a.title||('AI #'+a.id)} — ${a.client} / ${a.carrier}${cid!=null?` (CR #${cid}${a.cr?`, ${a.cr.status}`:''})`:''}`);
-      L.push(`    responsible ${respOf(a)} · requested by ${a.req||'—'} · pending for ${dur(a.days,a.wdays)} · ${a.noComment?`created ${a.eff||'—'}, no comments yet`:`last activity ${a.eff||'—'}`}${a.due?` · due ${a.due}`:''}`);
+      L.push(`  - ${a.title||('AI #'+a.id)} - ${a.client} / ${a.carrier}${cid!=null?` (CR #${cid}${a.cr?`, ${a.cr.status}`:''})`:''}`);
+      L.push(`    responsible ${respOf(a)} · requested by ${a.req||'-'} · pending for ${dur(a.days,a.wdays)} · ${a.noComment?`created ${a.eff||'-'}, no comments yet`:`last activity ${a.eff||'-'}`}${a.due?` · due ${a.due}`:''}`);
       if(a.id!=null && cid!=null) L.push(`    ${aiUrl(cid,a.id)}`);
     });
   }
   return L.join('\n');
 }
 $('#repbtn').onclick = () => {
-  $('#reptitle').textContent = `Report — ${curEmp} · ${DATA.generated}`;
+  $('#reptitle').textContent = `Report - ${curEmp} · ${DATA.generated}`;
   $('#reptext').value = buildReport();
   $('#repmodal').classList.add('open');
 };
@@ -2218,7 +2218,7 @@ wireSearch('#connsearch', '#connresults',
     return DATA.connections.filter(c =>
       c.customer.toLowerCase().includes(q) || c.carrier.toLowerCase().includes(q)
       || (/^\d+$/.test(qid) && String(c.id).includes(qid))).slice(0,15); },
-  c => `<div class="hit" data-id="${c.id}">${esc(c.carrier)} — ${esc(c.customer)}
+  c => `<div class="hit" data-id="${c.id}">${esc(c.carrier)} - ${esc(c.customer)}
       <small>CR #${c.id} &middot; ${esc(c.status)} &middot; ${esc(c.tc)}</small></div>`,
   d => {
     const c = DATA.connections.find(x=>String(x.id)===d.id);
@@ -2235,7 +2235,7 @@ wireSearch('#prodsearch', '#prodresults',
     return DATA.production.filter(p => p.tc &&
       (p.customer.toLowerCase().includes(q) || p.carrier.toLowerCase().includes(q)
       || (/^\d+$/.test(qid) && String(p.id).includes(qid)))).slice(0,15); },
-  p => `<div class="hit" data-i="${p._i}">${esc(p.carrier)} — ${esc(p.customer)}
+  p => `<div class="hit" data-i="${p._i}">${esc(p.carrier)} - ${esc(p.customer)}
       <small>CR #${p.id} &middot; ${p.date} &middot; ${esc(p.tc)}</small></div>`,
   d => {
     const p = DATA.production[+d.i];
@@ -2330,7 +2330,7 @@ function colProblems(label, rows, groups){
           || _toks(s).some(t => gt.includes(t));
     });
     out.push(`${label}: missing column "${g.join('" / "')}"`
-      + (near.length ? ` — likely renamed to "${near.join('", "')}"` : ''));
+      + (near.length ? ` - likely renamed to "${near.join('", "')}"` : ''));
   }
   return out;
 }
@@ -2344,7 +2344,7 @@ function fileDate(f){
 $('#files').onchange = async e => {
   const msg = $('#upmsg');
   try{
-    if(typeof XLSX==='undefined') throw new Error('Excel parser unavailable — check internet connection.');
+    if(typeof XLSX==='undefined') throw new Error('Excel parser unavailable - check internet connection.');
     const files = [...e.target.files];
     if(!files.length) return;
     msg.className=''; msg.textContent='Reading…';
@@ -2353,7 +2353,7 @@ $('#files').onchange = async e => {
     const colErrs = [];
     for(const f of files){
       // no cellDates: date cells stay raw Excel serial numbers, which encode
-      // the sheet's literal calendar day — no timezone interpretation at all
+      // the sheet's literal calendar day - no timezone interpretation at all
       const wb = XLSX.read(await f.arrayBuffer());
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
       const cols = new Set(Object.keys(rows[0]||{}));
@@ -2361,7 +2361,7 @@ $('#files').onchange = async e => {
       if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); colErrs.push(...colProblems('AI', rows, EXPECT.ai)); }
       else if(cols.has('OERequestID')){ colErrs.push(...colProblems('OE', rows, EXPECT.oe)); newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
       else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); colErrs.push(...colProblems('CR', rows, EXPECT.cr)); }
-      // MigrationSummary — EVERY sheet carrying MigrationTestingDate, since the
+      // MigrationSummary - EVERY sheet carrying MigrationTestingDate, since the
       // report splits migrations across sheets (eBN / EB); taking only the first
       // would silently drop the rest
       const mss = wb.SheetNames.filter(n=>((XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1})[0])||[]).includes('MigrationTestingDate'));
@@ -2378,13 +2378,13 @@ $('#files').onchange = async e => {
         newMs = [...seen.values()];
         tags.push(mss.length>1 ? `MigrationSummary (${mss.length} sheets)` : 'MigrationSummary');
       }
-      names.push(f.name + (tags.length ? ` (${tags.join(', ')})` : ' (unrecognized — skipped)'));
+      names.push(f.name + (tags.length ? ` (${tags.join(', ')})` : ' (unrecognized - skipped)'));
     }
     if(!newCr && !newAi && !newOe && !newMs) throw new Error('No file matched the CR, AI, OE or MigrationSummary report format.');
-    // a renamed column is reported but does NOT stop the upload — the rest of
+    // a renamed column is reported but does NOT stop the upload - the rest of
     // the report still loads; only the renamed fields come through empty
     const colWarn = colErrs.length
-      ? ` — COLUMN CHANGED: ${colErrs.join(' • ')}. Those fields stay empty until the dashboard is rebuilt with the new name.`
+      ? ` - COLUMN CHANGED: ${colErrs.join(' • ')}. Those fields stay empty until the dashboard is rebuilt with the new name.`
       : '';
     if(newCr){ RAW.cr = normCr(newCr); RAW.dates.cr = crDate; }
     if(newAi){ RAW.ai = newAi; RAW.dates.ai = aiDate; }
@@ -2398,10 +2398,10 @@ $('#files').onchange = async e => {
     DATA = process(RAW.cr, RAW.ai, RAW.oe, RAW.generated);
     let saveWarn = '';
     try{ await dbSet(DB_KEY, JSON.stringify(RAW)); }
-    catch(e){ saveWarn = ` — warning: couldn't save for next visit (${e && e.message || e})`; }
+    catch(e){ saveWarn = ` - warning: couldn't save for next visit (${e && e.message || e})`; }
     initSelectors(); render();
     msg.className = colWarn ? 'warn' : 'ok';
-    msg.textContent = `Updated: ${names.join(', ')} — ${DATA.connections.length} active connections, ${RAW.ai.length} AIs, ${DATA.oes.length} in-progress OEs`
+    msg.textContent = `Updated: ${names.join(', ')} - ${DATA.connections.length} active connections, ${RAW.ai.length} AIs, ${DATA.oes.length} in-progress OEs`
       + (newCr&&newAi&&newOe ? '' : ' (other reports kept from previous data)') + saveWarn + colWarn;
   }catch(err){ msg.className='err'; msg.textContent='Update failed: '+err.message; }
   e.target.value='';
@@ -2419,7 +2419,7 @@ restoreSaved().catch(()=>{}).then(()=>{
   initSelectors(); render();
   if(!RAW.cr.length && !RAW.ai.length){
     const m = $('#upmsg'); m.className = 'ok';
-    m.textContent = 'No data loaded yet — use "Update data" above to upload the CR, AI and OE reports.';
+    m.textContent = 'No data loaded yet - use "Update data" above to upload the CR, AI and OE reports.';
   }
 });
 </script>
@@ -2737,7 +2737,7 @@ const STAGE_COLS = ["Intake Date","Requirements Gathering","Resource Assignment"
   "Dataset Validation","Mapping","Testing","Ready For Production","Production"];
 // The CR export renamed "Created Date" to "Intake Date". Rows restored from a
 // browser cache or uploaded from an older export still carry the old name, and
-// a cached upload is never replaced by a new build — without this fold every
+// a cached upload is never replaced by a new build - without this fold every
 // intake-derived figure (Pending Start, intake trend, ledger, workload) would
 // silently read undefined, with no column warning to explain it.
 function normCr(rows){
@@ -2755,7 +2755,7 @@ const ACTIVE = new Set(["In Progress","Blocked","On Hold","Not Started"]);
 const OE_ACTIVE = new Set(["In Progress","Not Started"]);
 // A draft is not real work yet. The flag arrives as 1/0, true/false or
 // "Yes"/"No" depending on the export, so all the truthy spellings are accepted
-// — reading only Number(...)===1 would let a "Yes" draft through as live.
+// - reading only Number(...)===1 would let a "Yes" draft through as live.
 const oeDraft = r => { const t = txt(r['IsDraftOERequest']).toLowerCase();
   return r['IsDraftOERequest']===true || t==='1' || t==='true' || t==='yes'; };
 const oeLive = r => OE_ACTIVE.has(txt(r['Status'])) && !oeDraft(r);
@@ -2765,7 +2765,7 @@ const EXTERNAL = /carrier|client|partner|vendor/i;
 const $ = s => document.querySelector(s);
 const BASE = 'https://d24ep0r8pqsi0a.cloudfront.net';
 const crUrl = id => `${BASE}/ConnectivityRequests/ViewConnectivityRequest/${id}`;
-// same route the analyst page uses — an OE is addressed through its parent CR
+// same route the analyst page uses - an OE is addressed through its parent CR
 const oeUrl = (crId, oeId) => `${BASE}/OERequests/ViewConnectivityRequest/${crId}/ViewOERequest/${oeId}`;
 
 // ---------- helpers (same rules as the analyst / iSolved pages) ----------
@@ -2831,7 +2831,7 @@ function teamStats(){
 
   const active = cr.filter(r=>ACTIVE.has(txt(r['Status'])));
   // Blocked and on-hold CRs are active but nobody is advancing them, and they
-  // have their own "Blocked / on hold" row below — counting them again as
+  // have their own "Blocked / on hold" row below - counting them again as
   // unassigned or as aging would double-report the same stuck work. The two
   // sets partition `active` exactly; Cancelled is already outside ACTIVE.
   const PAUSED = new Set(['Blocked','On Hold']);
@@ -2898,7 +2898,7 @@ function teamStats(){
 
   // ---- migration programme split ----
   const mig = {};
-  active.forEach(r=>{ const m = txt(r['Migration'])||'—'; mig[m] = (mig[m]||0)+1; });
+  active.forEach(r=>{ const m = txt(r['Migration'])||'-'; mig[m] = (mig[m]||0)+1; });
   const migActive = active.filter(r=>{ const m = txt(r['Migration']).toLowerCase();
     return m && !['no','false','0','n','none','-'].includes(m); }).length;
 
@@ -2926,7 +2926,7 @@ function teamStats(){
 
 // ---------- pipeline stage duration (production + in-progress, team-wide) ----------
 // Average calendar time each connection spent in a stage: from the start of the
-// stage to the start of the next recorded stage — or to today, when the
+// stage to the start of the next recorded stage - or to today, when the
 // connection is still sitting in that stage (no later stage recorded yet).
 // Connections that reached Ready For Production / Production are grouped by the
 // year of that production date; in-progress connections (active status, no
@@ -2960,30 +2960,30 @@ function renderStageDur(){
     const active = ACTIVE.has(txt(r['Status']));
     if(!prodDate && !active) continue;   // only produced or in-progress connections
     rows.push({sd, produced: !!prodDate, year: prodDate ? prodDate.slice(0,4) : dataYear,
-      type: txt(r['Request Type'])||'—', mig: txt(r['Migration'])||'—', id: r['Request ID'],
+      type: txt(r['Request Type'])||'-', mig: txt(r['Migration'])||'-', id: r['Request ID'],
       customer: txt(r['Customer']), carrier: txt(r['Carrier'])});
   }
-  // year dropdown — default to the data year when present, else the latest
+  // year dropdown - default to the data year when present, else the latest
   const years = [...new Set(rows.map(r=>r.year))].sort().reverse();
   if(!years.includes(curDurYear)) curDurYear = years.includes(dataYear) ? dataYear : (years[0]||dataYear);
   const ysel = $('#duryear');
   ysel.innerHTML = (years.length?years:[curDurYear]).map(y=>`<option${y===curDurYear?' selected':''}>${y}</option>`).join('');
   ysel.onchange = e => { curDurYear = e.target.value; renderStageDur(); };
-  // in-progress / production dropdown — narrows the year's connections to one kind
+  // in-progress / production dropdown - narrows the year's connections to one kind
   const inYear = rows.filter(r=>r.year===curDurYear);
   const ssel = $('#durstate');
   ssel.value = curDurState;
   ssel.onchange = e => { curDurState = e.target.value; renderStageDur(); };
   const inState = inYear.filter(r => curDurState==='All' ? true
     : curDurState==='prod' ? r.produced : !r.produced);
-  // request-type dropdown — built from the request types present in that slice
+  // request-type dropdown - built from the request types present in that slice
   const types = [...new Set(inState.map(r=>r.type))].sort();
   if(curDurType!=='All' && !types.includes(curDurType)) curDurType = 'All';
   const tsel = $('#durtype');
   tsel.innerHTML = ['All',...types].map(tp=>
     `<option value="${esc(tp)}"${tp===curDurType?' selected':''}>${tp==='All'?'All types':esc(tp)}</option>`).join('');
   tsel.onchange = e => { curDurType = e.target.value; renderStageDur(); };
-  // migration dropdown — built from the migration programmes present in that slice
+  // migration dropdown - built from the migration programmes present in that slice
   const migs = [...new Set(inState.map(r=>r.mig))].sort();
   if(curDurMig!=='All' && !migs.includes(curDurMig)) curDurMig = 'All';
   const msel = $('#durmig');
@@ -3039,7 +3039,7 @@ function renderStageDur(){
   }
   const internalRaw = [], carrierRaw = [];
   for(const r of sel){
-    if(r.mig==='No' || r.mig==='—') continue;   // migration connections only
+    if(r.mig==='No' || r.mig==='-') continue;   // migration connections only
     const mtd = msMap[r.id];
     if(!mtd) continue;
     const tStart = r.sd[TEST_I];
@@ -3057,10 +3057,10 @@ function renderStageDur(){
   const msBar = (key, label, sub, avg, sp, color) => `<div class="msrow">
       <span class="msname"><i style="background:${color}"></i><span class="mslbl">${label}<small>${sub}</small></span></span>
       <div class="mstrack"><div class="msbar" style="width:${Math.max(2,(avg||0)/msMax*100)}%;background:${color}"></div></div>
-      <span class="msval">${avg!=null?(avg/7).toFixed(1)+' wk':'—'}</span>
+      <span class="msval">${avg!=null?(avg/7).toFixed(1)+' wk':'-'}</span>
       <span class="mscnt">${sp.kept.length} migration${sp.kept.length===1?'':'s'}${sp.cut.length?` · <a class="outbtn" data-i="${key}" title="show / hide the removed migrations">${sp.cut.length} outlier${sp.cut.length===1?'':'s'} removed</a>`:''}</span>
     </div>${sp.cut.length?`<div class="msouts" id="douts-${key}" style="display:none">
-      ${sp.cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} — ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
+      ${sp.cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} - ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
     </div>`:''}`;
   const msBlock = hasSplit ? `<div class="msplit" id="ms-split" style="display:none">
     ${msBar('msint','Internal testing','testing start &rarr; migration testing date', iAvg, intSplit, 'var(--s4)')}
@@ -3073,9 +3073,9 @@ function renderStageDur(){
       <span class="sval">${(avg/7).toFixed(1)} wk</span>
       <span class="scnt">${kept.length} conn${kept.length>1?'s':''}${cut.length?` · <a class="outbtn" data-i="${i}" title="show / hide the removed connections">${cut.length} outlier${cut.length>1?'s':''} removed</a>`:''}${i===TEST_I&&hasSplit?` · <a class="msbtn" title="internal vs carrier testing for migrations">migration split</a>`:''}</span>
     </div>${cut.length?`<div class="souts" id="douts-${i}" style="display:none">
-      ${cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} — ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
+      ${cut.map(x=>`<div><a class="lnk" href="${crUrl(x.id)}" target="_blank">#${x.id}</a> ${esc(x.customer)} - ${esc(x.carrier)} &middot; <span class="dt">${(x.d/7).toFixed(1)} wk (${x.start} &rarr; ${x.end})</span></div>`).join('')}
     </div>`:''}${i===TEST_I?msBlock:''}`).join('')}
-  </div><div class="hnote">Average time from the start of each stage to the start of the next recorded one —
+  </div><div class="hnote">Average time from the start of each stage to the start of the next recorded one -
     or to today for a stage a connection is still sitting in. Covers connections produced in ${curDurYear}${curDurYear===dataYear?' plus those currently in progress':''}${curDurType==='All'?'':` · ${esc(curDurType)}`}${curDurMig==='All'?'':` · ${esc(curDurMig)}`}.${hasSplit?' Migrations also carry an internal/carrier testing split under the Testing stage.':''}${slowest?` The longest stage is ${STAGES[slowest[0]]} at ${(slowest[1]/7).toFixed(1)} weeks.`:''}</div>`
     : `<div class="empty">No connections with measurable stages in ${curDurYear}${curDurType==='All'?'':' for this request type'}.</div>`;
   document.querySelectorAll('#stagedur .outbtn').forEach(b=>{
@@ -3144,7 +3144,7 @@ function workloadSheet(){
   const blockedOut = cr.filter(r=>statusIs(r,'Blocked')
     && ['Requirements Gathering','Resource Assignment','Pending Start']
        .some(s=>stageIs(r,s))).length;
-  // Same rule as the Active OEs KPI — live (not blocked, on hold or draft) —
+  // Same rule as the Active OEs KPI - live (not blocked, on hold or draft) -
   // plus one more: a request whose plan year has already started is dropped,
   // because the queue counts forward-looking work and those are chased from the
   // Needs attention list instead. An OE with no plan year start cannot be
@@ -3172,12 +3172,12 @@ function workloadSheet(){
   const oeLater     = oeActive.filter(r=>{ const p = oePy(r); return p && p > soonEnd; }).length;
   const oeNoPysd    = oeActive.filter(r=>!oePy(r)).length;
   // OEs nobody owns, among the ones coming up: they name no technical contact,
-  // so they appear in no analyst's row — the table would otherwise hide them
+  // so they appear in no analyst's row - the table would otherwise hide them
   const oeUnassigned = oeSoonList.filter(r=>!txt(r['TechnicalContact'])).length;
 
   // --- per-analyst EDI / Forms queue (workbook rows 3-20) ---
   // OE names live in a different column and an analyst may hold OE work but no
-  // in-progress CR, so the roster is the union — otherwise they get no row at all
+  // in-progress CR, so the roster is the union - otherwise they get no row at all
   const names = [...new Set([...inProg.map(r=>txt(r['Technical Contact'])),
     ...oeActive.map(r=>txt(r['TechnicalContact']))].filter(Boolean))];
   const years = [...new Set(cr.map(r=>monthOf(toISO(r['Intake Date'])))
@@ -3220,7 +3220,7 @@ function workloadSheet(){
       && (monthOf(toISO(r['Intake Date']))||'').slice(0,4)===y).length);
     return q;
   // an analyst whose only in-progress work is Requirements Gathering or Resource
-  // Assignment belongs to the RG table, not this one — no all-zero rows here
+  // Assignment belongs to the RG table, not this one - no all-zero rows here
   }).filter(q=>q.queue || q.rfp || q.fProd || q.oe)
     .sort((x,y)=>y.queue-x.queue || x.a.localeCompare(y.a));
 
@@ -3295,7 +3295,7 @@ function workloadSheet(){
     qmap[k].months++; qmap[k].input += r.net; qmap[k].output += r.actual; });
   const quarters = Object.values(qmap);
   // the workbook carried two ratios: output against this quarter's own intake
-  // (row 51) and against the previous quarter's (row 52) — work booked in one
+  // (row 51) and against the previous quarter's (row 52) - work booked in one
   // quarter mostly lands in the next, so the lagged one is the honest read
   quarters.forEach((q,i)=>{ const prev = quarters[i-1];
     q.prevInput = prev ? prev.input : null; });
@@ -3317,13 +3317,13 @@ function renderWorkload(){
     const cls = p>150 ? 'hot' : p>100 ? 'over' : '';
     return `<td class="${cls==='hot'?'bad':cls==='over'?'warn':''}"><span class="capbar"
       title="${v} of ${expect} expected"><i class="${cls}"
-      style="width:${Math.min(100,p)}%"></i></span>${expect?Math.round(p)+'%':'&mdash;'}</td>`;
+      style="width:${Math.min(100,p)}%"></i></span>${expect?Math.round(p)+'%':'-'}</td>`;
   };
   // a gap since the last assignment means the analyst has stopped receiving work.
   // Counted in working days (§4.2 weekend rule) so a normal weekend cannot push
   // an idle-looking analyst into amber on its own.
   const dcell = (iso, cls='') => {
-    if(!iso) return `<td class="${(cls+' zero').trim()}">&mdash;</td>`;
+    if(!iso) return `<td class="${(cls+' zero').trim()}">-</td>`;
     const d = workDaysBetween(iso, today);
     return `<td class="${cls} ${d>=ASSIGN_BAD?'bad':d>=ASSIGN_WARN?'warn':''}"
       title="${d} working day${d===1?'':'s'} ago (${daysBetween(iso, today)} calendar)">${iso}</td>`;
@@ -3342,7 +3342,7 @@ function renderWorkload(){
       <div class="wchip"><b>${w.live.edi}</b>live EDI connections${w.live.child?` &middot; ${w.live.child} child`:''}</div>
       <div class="wchip"><b>${w.live.forms}</b>live Forms connections</div>
       <div class="wchip" title="Plan years that have already started are not counted at all, nor are drafts.&#10;Upcoming month = ${w.soonStart} to ${w.soonEnd}.&#10;The counts beside the total split it, so they always add up."><b>${w.oeSoon}</b>OE requests starting ${w.soonMonth} &middot; of ${w.oeTotal} open${w.oeThisMonth?` &middot; ${w.oeThisMonth} earlier, still in ${w.asOf.slice(0,7)}`:''}${w.oeLater?` &middot; ${w.oeLater} after ${w.soonMonth}`:''}${w.oeNoPysd?` &middot; ${w.oeNoPysd} with no plan year start`:''}</div>
-      <div class="wchip" title="Plan year starting in ${w.soonMonth} and naming no technical contact — they are in no row below"><b>${w.oeUnassigned}</b>OE requests with no analyst</div>
+      <div class="wchip" title="Plan year starting in ${w.soonMonth} and naming no technical contact - they are in no row below"><b>${w.oeUnassigned}</b>OE requests with no analyst</div>
       <div class="wchip"><b>${w.live.disabled}</b>production disabled</div>
     </div>`;
   $('#wl-queue').innerHTML = w.rows.length ? queueChips + `<div class="wscroll"><table class="wtbl">
@@ -3378,14 +3378,14 @@ function renderWorkload(){
       ${w.years.map((_,i)=>n(w.rows.reduce((a,r)=>a+r.byYear[i],0), i?'':'grp')).join('')}
     </tr></tfoot>
   </table></div>
-  <div class="hnote">In-progress connections only &mdash; blocked and on-hold work is not counted.
+  <div class="hnote">In-progress connections only - blocked and on-hold work is not counted.
     "Not started" is a CR sitting in Dataset Validation that has never been assigned; "Queue" is
     the four EDI stages plus every open Forms request, measured against the
     <b>${wlExpect}</b> expected per analyst (amber over 100%, red over 150%). "Last assigned"
     turns amber after ${ASSIGN_WARN} working days and red after ${ASSIGN_BAD} (Friday and Saturday
-    excluded) — nobody has handed them work since.
+    excluded) - nobody has handed them work since.
     The OE columns are open-enrollment requests (active status only, from the OE report,
-    bucketed across the seven OE stages) — they are a separate queue and are deliberately
+    bucketed across the seven OE stages) - they are a separate queue and are deliberately
     <b>not</b> included in "Queue" or the capacity bar, so those keep matching the workbook.
     "Assigned" is every open OE request that names the analyst whose plan year has not
     started yet; ones already past their PlanYearStartDate are left out here and listed
@@ -3416,16 +3416,16 @@ function renderWorkload(){
   </table></div>
   <div class="hnote">Active CRs in Requirements Gathering, against <b>${wlRgExpect}</b> expected each.
     ${w.rgUnassigned?`${w.rgUnassigned} RG CR${w.rgUnassigned===1?' has':'s have'} no analyst and are not in the table. `:''}
-    "Awaiting assignment" counts every active CR sitting in Resource Assignment, whoever holds it —
+    "Awaiting assignment" counts every active CR sitting in Resource Assignment, whoever holds it -
     the sheet only counted two named people. Blocked CRs are left out of all three counts${
-      w.blockedOut?` (${w.blockedOut} excluded)`:''} — they are active, but nobody is moving them.</div>`
+      w.blockedOut?` (${w.blockedOut} excluded)`:''} - they are active, but nobody is moving them.</div>`
     : '<div class="empty">No active connections in Requirements Gathering.</div>');
 
   // --- monthly ledger ----------------------------------------------------
   const L = w.ledger;
-  // the as-of month is only counted up to the report date — flag it as partial
+  // the as-of month is only counted up to the report date - flag it as partial
   const nowM = w.asOf.slice(0,7);
-  const mhead = L.map(r=>`<th${r.m===nowM?` title="partial — only up to ${w.asOf}"`:''}>${
+  const mhead = L.map(r=>`<th${r.m===nowM?` title="partial - only up to ${w.asOf}"`:''}>${
     r.m.slice(2).replace('-','/')}${r.m===nowM?'*':''}</th>`).join('');
   // hot = class applied to any non-zero cell (the workbook flagged "Not Started"
   // in a month at all, however small)
@@ -3434,7 +3434,7 @@ function renderWorkload(){
       ${L.map(r=>`<td class="${r[key]?hot:'zero'}">${r[key]}</td>`).join('')}
       <td class="grp">${L.reduce((a,r)=>a+(r[key]||0),0)}</td>
     </tr>`;
-  const ratioCell = v => v==null ? '<td class="zero">&mdash;</td>'
+  const ratioCell = v => v==null ? '<td class="zero">-</td>'
     : `<td class="${v<.6?'bad':v<.9?'warn':''}">${Math.round(v*100)}%</td>`;
   $('#wl-ledger').innerHTML = L.length ? `<div class="wscroll"><table class="wtbl">
     <thead><tr><th class="lbl">Created in month</th>${mhead}<th class="grp">Total</th></tr></thead>
@@ -3464,7 +3464,7 @@ function renderWorkload(){
   </table></div>
   <div class="hnote">Each column is a creation month; the status rows are where those CRs stand
     <i>today</i>, not where they stood then. "Net intake" is everything except cancellations and
-    child CRs — the work that actually had to be delivered. Output is matched against the intake
+    child CRs - the work that actually had to be delivered. Output is matched against the intake
     ${WL_LAG} months earlier, so a month under 100% means the team took in more than it cleared
     (amber under 90%, red under 60%). Intake is only complete from <b>${w.cutM}</b> onward, so the
     table starts there${L.some(r=>r.m===nowM)?`, and <b>${nowM}*</b> only runs to ${w.asOf}`:''}.</div>`
@@ -3480,8 +3480,8 @@ function renderWorkload(){
       <th class="grp">Intake / month</th><th>Production / month</th></tr></thead>
     <tbody>${w.quarters.map(q=>`<tr><th class="lbl">${q.k}${q.months<3?` <small style="font-weight:400;color:var(--ink-soft)">(${q.months} mo)</small>`:''}</th>
       ${n(q.input,'grp')}${n(q.output)}
-      ${q.input?ratioCell(q.output/q.input):'<td class="zero">&mdash;</td>'}
-      ${q.prevInput?ratioCell(q.output/q.prevInput):'<td class="zero">&mdash;</td>'}
+      ${q.input?ratioCell(q.output/q.input):'<td class="zero">-</td>'}
+      ${q.prevInput?ratioCell(q.output/q.prevInput):'<td class="zero">-</td>'}
       ${n(per(q.input,q.months),'grp')}${n(per(q.output,q.months))}</tr>`).join('')}</tbody>
     <tfoot><tr class="tot"><th class="lbl">Total</th>
       ${n(qIn,'grp')}${n(qOut)}${ratioCell(qIn ? qOut/qIn : null)}
@@ -3490,7 +3490,7 @@ function renderWorkload(){
   <div class="hnote">Real calendar quarters over the same window as the ledger; a quarter the data
     only partly covers is marked with its month count, so its per-month figures stay comparable.
     Work booked in one quarter mostly lands in the next, so <b>output / previous intake</b> is the
-    fairer read of whether the team kept up &mdash; the workbook carried both.</div>`
+    fairer read of whether the team kept up - the workbook carried both.</div>`
     : '<div class="empty">Not enough months to summarise.</div>';
 }
 
@@ -3507,12 +3507,12 @@ function render(){
   const cancRate = pct(cancTotal, t.cr.length);
   const cancRecent = t.cancelled.filter(c=>t.win.includes(c.m)).length;
   const createdWin = t.series.reduce((a,s)=>a+s.created,0);
-  const clear = t.avgOut ? (t.active.length/t.avgOut).toFixed(1) : '—';
+  const clear = t.avgOut ? (t.active.length/t.avgOut).toFixed(1) : '-';
 
   $('#kpis').innerHTML = [
     [t.active.length,'Active connections', `${t.analysts.length} analysts · average ${mean(loads)} each`, ''],
     [nowProd,`Produced ${t.thisMonth||''}`, delta==null?'':`${delta>=0?'+':''}${delta}% vs ${t.prevMonth}`, ''],
-    [t.cycMean+'d','Average cycle time', `p90 ${t.cycP90}d — the tail the average hides`, ''],
+    [t.cycMean+'d','Average cycle time', `p90 ${t.cycP90}d - the tail the average hides`, ''],
     [clear+' mo','To clear backlog', `at ~${Math.round(t.avgOut)}/month, no new intake`, ''],
     [t.unassigned.length,'Unassigned', 'active CRs with no analyst, excluding blocked / on hold', t.unassigned.length?'warn':''],
     [t.aged90.length,'Aging > 90d', `${t.aged180.length} over 180d`, t.aged90.length?'bad':''],
@@ -3532,7 +3532,7 @@ function render(){
       <div class="glbl">${s.m.slice(2).replace('-','/')}</div>
     </div>`).join('');
   const tc = createdWin, tp = t.series.reduce((a,s)=>a+s.produced,0);
-  $('#gnote').textContent = `Last ${t.series.length} months: ${tc} created vs ${tp} produced — `
+  $('#gnote').textContent = `Last ${t.series.length} months: ${tc} created vs ${tp} produced - `
     + (tc>tp ? `backlog grew by ${tc-tp}` : tc<tp ? `backlog shrank by ${tp-tc}` : 'backlog flat')
     + `. ${cancRecent} of those ${tc} have already been cancelled, so real demand is lower than intake suggests.`;
 
@@ -3545,15 +3545,15 @@ function render(){
         title="${c.m}: average ${c.avg}d over ${c.n} CRs"></div></div>
       <div class="glbl">${c.m.slice(2).replace('-','/')}</div>
     </div>`).join('');
-  // compare the last 3 months with the 3 before them — comparing first vs last
+  // compare the last 3 months with the 3 before them - comparing first vs last
   // month would let a single outlier month hide the real direction
   const r3 = t.cycTrend.slice(-3), p3 = t.cycTrend.slice(-6,-3);
   const rAvg = mean(r3.map(c=>c.avg)), pAvg = mean(p3.map(c=>c.avg));
   $('#cnote').textContent = r3.length && p3.length && pAvg
-    ? `Last 3 months average ${rAvg}d vs the 3 before ${pAvg}d — `
+    ? `Last 3 months average ${rAvg}d vs the 3 before ${pAvg}d - `
       + (rAvg>pAvg ? `slower by ${Math.round((rAvg-pAvg)/pAvg*100)}%`
       : rAvg<pAvg ? `faster by ${Math.round((pAvg-rAvg)/pAvg*100)}%` : 'flat')
-      + `. Measured only on CRs that finished — work still stuck is not in this number.`
+      + `. Measured only on CRs that finished - work still stuck is not in this number.`
     : '';
 
   // --- pipeline stage duration over production connections (year + type filtered) ---
@@ -3566,7 +3566,7 @@ function render(){
   const now = new Date(t.asOf+'T00:00:00Z');
   const ageOf = r => { const a = toISO(r['Assignment Date']); return a?daysBetween(a,now):0; };
   const crLine = x => `<div><a class="lnk" href="${crUrl(x.r['Request ID'])}" target="_blank">#${x.r['Request ID']}</a>
-    ${esc(txt(x.r['Customer']))} — ${esc(txt(x.r['Carrier']))} <span class="dt">${x.d}d</span>
+    ${esc(txt(x.r['Customer']))} - ${esc(txt(x.r['Carrier']))} <span class="dt">${x.d}d</span>
     ${txt(x.r['Technical Contact'])?`· ${esc(txt(x.r['Technical Contact']))}`:'· <i>unassigned</i>'}</div>`;
   // an OE without a parent CR id cannot be addressed in the app, so it stays
   // plain text rather than becoming a link that 404s
@@ -3575,7 +3575,7 @@ function render(){
     const head = (cid!=null && cid!=='')
       ? `<a class="lnk" href="${oeUrl(cid, oid)}" target="_blank" title="Open OE #${oid} in the app">${label}</a>`
       : `<span class="dt">${label}</span>`;
-    return `<div>${head} ${esc(txt(r['ClientName']))} — ${esc(txt(r['CarrierName']))}
+    return `<div>${head} ${esc(txt(r['ClientName']))} - ${esc(txt(r['CarrierName']))}
       <span class="dt">${toISO(r['PlanYearStartDate'])}</span> · ${esc(txt(r['Stage']))}
       · ${esc(txt(r['TechnicalContact'])||'unassigned')}</div>`; };
   const topCarriers = Object.entries(t.byCarrier).sort((a,b)=>b[1]-a[1]).slice(0,10);
@@ -3584,22 +3584,22 @@ function render(){
 
   $('#risks').innerHTML = [
     ['Unassigned active CRs', t.unassigned.length, t.unassigned.length?'warn':'',
-      `<div><i>Blocked, on-hold and cancelled CRs are not counted — the ${t.stalled.length}
+      `<div><i>Blocked, on-hold and cancelled CRs are not counted - the ${t.stalled.length}
         blocked / on hold are listed separately below.</i></div>`
       + t.unassigned.map(r=>({r,d:ageOf(r)})).sort((a,b)=>b.d-a.d).map(crLine).join('')],
     ['Active CRs aging over 90 days', t.aged90.length, t.aged90.length?'bad':'',
-      `<div><i>Days since assignment, over the ${t.moving.length} CRs actually moving —
+      `<div><i>Days since assignment, over the ${t.moving.length} CRs actually moving -
         blocked, on-hold and cancelled work is left out.</i></div>`
       + t.aged90.slice().sort((a,b)=>b.d-a.d).map(crLine).join('')],
     ['In Testing with no test file sent', t.stalledTest.length, t.stalledTest.length?'bad':'',
-      `<div><i>${pct(t.stalledTest.length, t.inTesting.length)}% of the ${t.inTesting.length} CRs in Testing — they look
+      `<div><i>${pct(t.stalledTest.length, t.inTesting.length)}% of the ${t.inTesting.length} CRs in Testing - they look
         like progress but nothing has been sent.</i></div>`
       + t.stalledTest.map(r=>({r,d:ageOf(r)})).sort((a,b)=>b.d-a.d).map(crLine).join('')],
     ['Blocked / on hold', t.stalled.length, t.stalled.length?'warn':'',
       t.stalled.map(r=>({r,d:ageOf(r)})).sort((a,b)=>b.d-a.d).map(crLine).join('')],
     ['Action items untouched over 90 days', t.stale90.length, t.stale90.length?'bad':'',
       t.stale90.slice().sort((a,b)=>b.d-a.d).slice(0,200).map(x=>`<div>${esc(txt(x.r['ActionItemTitle'])||('AI #'+x.r['ActionItemID']))}
-        — ${esc(txt(x.r['ClientName']))} <span class="dt">${x.d}d</span> · on ${esc(x.on||'—')}</div>`).join('')],
+        - ${esc(txt(x.r['ClientName']))} <span class="dt">${x.d}d</span> · on ${esc(x.on||'-')}</div>`).join('')],
     ['OEs past their plan-year start', t.oePast.length, t.oePast.length?'bad':'',
       t.oePast.map(oeLine).join('')],
     ['Action items waiting on carriers', t.ext.length, t.ext.length?'warn':'',
@@ -3607,8 +3607,8 @@ function render(){
         Top carriers to escalate with:</i></div>`
       + topCarriers.map(([k,v])=>`<div>${esc(k)} <span class="dt">${v}</span></div>`).join('')],
     ['Open AIs held by one person', t.holdRank.length?t.holdRank[0][1]:0, keyShare>=25?'bad':'warn',
-      `<div><i>${esc(t.holdRank.length?t.holdRank[0][0]:'—')} holds ${keyShare}% of the ${t.internal.length}
-        action items pending on the team — key-person risk.</i></div>`
+      `<div><i>${esc(t.holdRank.length?t.holdRank[0][0]:'-')} holds ${keyShare}% of the ${t.internal.length}
+        action items pending on the team - key-person risk.</i></div>`
       + t.holdRank.slice(0,10).map(([k,v])=>`<div>${esc(k)} <span class="dt">${v}</span></div>`).join('')],
     ['Active CRs with no action item', t.noAI.length, '',
       `<div><i>No open action item is attached, so there is no progress trail on these.</i></div>`
@@ -3663,7 +3663,7 @@ async function restoreSaved(){
   // use the saved upload when it is newer than the embedded data, or whenever the
   // file ships empty (an emptied file) so the browser copy is the source of truth
   // An uploaded sheet is kept regardless of its date: whatever the viewer last
-  // uploaded is what they see, and it survives reloads. No date comparison —
+  // uploaded is what they see, and it survives reloads. No date comparison -
   // the embedded build data is only a starting point until someone uploads.
   // Consequence: once uploaded, a newly deployed build will NOT replace this
   // copy. Clearing it needs the browser's own "clear site data".
@@ -3727,7 +3727,7 @@ function colProblems(label, rows, groups){
           || _toks(s).some(t => gt.includes(t));
     });
     out.push(`${label}: missing column "${g.join('" / "')}"`
-      + (near.length ? ` — likely renamed to "${near.join('", "')}"` : ''));
+      + (near.length ? ` - likely renamed to "${near.join('", "')}"` : ''));
   }
   return out;
 }
@@ -3741,7 +3741,7 @@ function fileDate(f){
 $('#files').onchange = async e => {
   const msg = $('#upmsg');
   try{
-    if(typeof XLSX==='undefined') throw new Error('Excel parser unavailable — check internet connection.');
+    if(typeof XLSX==='undefined') throw new Error('Excel parser unavailable - check internet connection.');
     const files = [...e.target.files];
     if(!files.length) return;
     msg.className=''; msg.textContent='Reading…';
@@ -3756,7 +3756,7 @@ $('#files').onchange = async e => {
       if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); colErrs.push(...colProblems('AI', rows, EXPECT.ai)); }
       else if(cols.has('OERequestID')){ colErrs.push(...colProblems('OE', rows, EXPECT.oe)); newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
       else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); colErrs.push(...colProblems('CR', rows, EXPECT.cr)); }
-      // MigrationSummary — EVERY sheet carrying MigrationTestingDate, since the
+      // MigrationSummary - EVERY sheet carrying MigrationTestingDate, since the
       // report splits migrations across sheets (eBN / EB); taking only the first
       // would silently drop the rest
       const mss = wb.SheetNames.filter(n=>((XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1})[0])||[]).includes('MigrationTestingDate'));
@@ -3773,13 +3773,13 @@ $('#files').onchange = async e => {
         newMs = [...seen.values()];
         tags.push(mss.length>1 ? `MigrationSummary (${mss.length} sheets)` : 'MigrationSummary');
       }
-      names.push(f.name + (tags.length ? ` (${tags.join(', ')})` : ' (unrecognized — skipped)'));
+      names.push(f.name + (tags.length ? ` (${tags.join(', ')})` : ' (unrecognized - skipped)'));
     }
     if(!newCr && !newAi && !newOe && !newMs) throw new Error('No file matched the CR, AI, OE or MigrationSummary report format.');
-    // a renamed column is reported but does NOT stop the upload — the rest of
+    // a renamed column is reported but does NOT stop the upload - the rest of
     // the report still loads; only the renamed fields come through empty
     const colWarn = colErrs.length
-      ? ` — COLUMN CHANGED: ${colErrs.join(' • ')}. Those fields stay empty until the dashboard is rebuilt with the new name.`
+      ? ` - COLUMN CHANGED: ${colErrs.join(' • ')}. Those fields stay empty until the dashboard is rebuilt with the new name.`
       : '';
     if(newCr){ RAW.cr = normCr(newCr); RAW.dates.cr = crDate; }
     if(newAi){ RAW.ai = newAi; RAW.dates.ai = aiDate; }
@@ -3788,7 +3788,7 @@ $('#files').onchange = async e => {
     RAW.generated = [RAW.dates.cr, RAW.dates.ai, RAW.dates.oe].filter(Boolean).sort().at(-1) || localDay(new Date());
     let saveWarn = '';
     try{ await dbSet(DB_KEY, JSON.stringify(RAW)); }
-    catch(e){ saveWarn = ` — warning: couldn't save for next visit (${e && e.message || e})`; }
+    catch(e){ saveWarn = ` - warning: couldn't save for next visit (${e && e.message || e})`; }
     render();
     msg.className = colWarn ? 'warn' : 'ok';
     msg.textContent = `Updated: ${names.join(', ')}` + saveWarn + colWarn;
@@ -3800,7 +3800,7 @@ restoreSaved().catch(()=>{}).then(()=>{
   render();
   if(!RAW.cr.length){
     const m = $('#upmsg'); m.className = 'ok';
-    m.textContent = 'No data loaded yet — use "Update data" above to upload the CR, AI and OE reports.';
+    m.textContent = 'No data loaded yet - use "Update data" above to upload the CR, AI and OE reports.';
   }
 });
 </script>

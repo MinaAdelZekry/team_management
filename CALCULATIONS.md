@@ -20,9 +20,9 @@ the same data by the same script.
 
 Data reaches the page two ways:
 
-- **Embedded at build time** — `build_dashboard.py` reads the Excel exports with pandas and
+- **Embedded at build time** - `build_dashboard.py` reads the Excel exports with pandas and
   embeds the rows as JSON.
-- **Uploaded in the browser** — the "Update data" button parses `.xlsx`/`.xls` files with SheetJS.
+- **Uploaded in the browser** - the "Update data" button parses `.xlsx`/`.xls` files with SheetJS.
   Files are auto-recognized by the columns above; unrecognized files are skipped with a message.
   A partial upload keeps the other reports from the previous data.
 
@@ -36,7 +36,7 @@ connections* section, so:
 - the set-aside count is one KPI with an `N on hold · M blocked` breakdown, and each card keeps its
   own status chip (blocked is red, on hold is muted);
 - the copyable report splits the same three ways;
-- workload totals, production and stage-duration figures further down the page are unaffected —
+- workload totals, production and stage-duration figures further down the page are unaffected -
   they still count every connection.
 
 ### Page role
@@ -55,7 +55,7 @@ connections* section, so:
 - Only whitelisted columns are kept per report (`CR_KEEP`, `AI_KEEP`, `OE_KEEP`).
 - All datetime columns are formatted as `YYYY-MM-DD` **as-is** (pandas `strftime`, no timezone math).
 - Null cells are dropped from the JSON to shrink the page.
-- **Embed mask** — only CR rows the dashboard can use are embedded:
+- **Embed mask** - only CR rows the dashboard can use are embedded:
   - status is active (`In Progress`, `Blocked`, `On Hold`, `Not Started`) with a Technical Contact, **or**
   - has a `Ready For Production` or `Production` date (feeds production history), **or**
   - is referenced by an action item (by `ConnectivityRequestID` or by matching client+carrier name).
@@ -63,7 +63,7 @@ connections* section, so:
 
 ### 2.2 At upload time (browser)
 
-- The workbook is read **without** `cellDates`, so date cells stay raw Excel serial numbers —
+- The workbook is read **without** `cellDates`, so date cells stay raw Excel serial numbers -
   the sheet's literal calendar day with no timezone interpretation (chosen after a bug where
   UTC conversion shifted dates one day back for UTC+ timezones).
 - OE rows are filtered to active statuses at read time.
@@ -85,20 +85,20 @@ Every date is normalized to a `YYYY-MM-DD` string:
   date* are ignored entirely (they would otherwise reset pending-day counters).
 - Comment line breaks stored as `<br/>` are converted to real line breaks; comments are truncated
   to 500 characters in hover popups.
-- An AI with no (human) comment is flagged `*` — its dates count from the AI creation date.
+- An AI with no (human) comment is flagged `*` - its dates count from the AI creation date.
 
 ### 2.5 Name normalization (for matching)
 
 - Lowercase; every non-alphanumeric character becomes a space; whitespace collapsed.
 - Stop words removed: `inc llc llp ltd co corp corporation company the of`.
-- Carrier "base" variant additionally strips any parenthesized part —
+- Carrier "base" variant additionally strips any parenthesized part -
   `Third Party (Optum)` matches a CR filed as `Third Party`.
 
 ---
 
 ## 3. Action item ↔ CR matching
 
-1. **By ID (authoritative)** — if the AI has `ConnectivityRequestID`, it links only by that.
+1. **By ID (authoritative)** - if the AI has `ConnectivityRequestID`, it links only by that.
 2. **Name fallback** (older report formats without the ID column), tried in order:
    1. exact normalized `client + carrier` key;
    2. base key (carrier parentheses stripped);
@@ -108,7 +108,7 @@ Every date is normalized to a `YYYY-MM-DD` string:
         `BCBS`/`Blue Cross Blue Shield`), single-word containment (`Optum` in `HSA w/Optum`),
         or a shared distinctive first word ≥ 5 chars (`Cigna/CBS` ↔ `Cigna Healthcare`).
 3. AIs not landing on an active connection card are resolved to *some* CR (live/cancelled/unassigned)
-   by the same cascade, preferring a CR that has an assigned contact — this powers links and the
+   by the same cascade, preferring a CR that has an assigned contact - this powers links and the
    "other" list.
 
 **Known trade-offs of name matching:** with multiple CRs sharing a client+carrier, an AI can attach
@@ -133,10 +133,10 @@ Sorted by days pending, descending.
 `daysBetween` = whole days between two `YYYY-MM-DD` dates (UTC midnight to UTC midnight).
 The reference "now" for a day-count is the **captured date of the report the data came from**
 (the header "Data as of" date), never the viewer's clock: CR-sourced counts use the CR date,
-AI-sourced counts use the AI date. (`generated` — the newest of those — is only a fallback when
+AI-sourced counts use the AI date. (`generated` - the newest of those - is only a fallback when
 a per-report date is missing.)
 
-### 4.2 Working days — differs per page
+### 4.2 Working days - differs per page
 
 Weekend definition:
 - **Analyst page**: Friday & Saturday.
@@ -153,14 +153,14 @@ Pending days/working-days count from that date to the **AI report's** captured d
 ### 4.4 Idle time on connections
 
 `last activity = max(any CR milestone/stage date, latest AI effective date)`.
-Idle counts to the captured date of the report that supplied the latest activity — CR activity
-to the CR date, AI activity to the AI date — so weekends/staleness in one report don't skew it.
+Idle counts to the captured date of the report that supplied the latest activity - CR activity
+to the CR date, AI activity to the AI date - so weekends/staleness in one report don't skew it.
 
 ### 4.5 Warning intervals (one rule for all day-based colors)
 
 CR idle chips and AI due-date chips share the same intervals and palette,
 counted in **working days** (per the page's weekend rule, §4.2):
-`< 4` working days ok (green), `4–9` warn (amber), `≥ 10` bad/over (red) —
+`< 4` working days ok (green), `4–9` warn (amber), `≥ 10` bad/over (red) -
 working days idle for CRs, working days overdue for AI due dates.
 
 ---
@@ -179,7 +179,7 @@ Mapping → Testing → Ready for Production → Production.
   Testing with no test file gets a `*` marker on the rail.
 - A stage's **duration** = its start → the start of the **next stage that has a date** (missing
   intermediate stages are skipped, so the timeline always tiles with no gaps/overlaps).
-- A stage with no later dated stage is "in progress" — it has no completed duration.
+- A stage with no later dated stage is "in progress" - it has no completed duration.
 
 ---
 
@@ -187,10 +187,10 @@ Mapping → Testing → Ready for Production → Production.
 
 - A CR counts toward production in the month of its **Ready For Production date, falling back to
   the Production date** when RFP is empty (`month = date.slice(0,7)`).
-- **Team total** for a month = every production CR that month across the whole report — including
+- **Team total** for a month = every production CR that month across the whole report - including
   CRs with nobody in the page's role column. The denominator is therefore identical on both pages.
 - **Percentage** = person ÷ team total × 100, rounded to 1 decimal; hidden when the team total is 0.
-- **Rank** — see §8.
+- **Rank** - see §8.
 
 ---
 
@@ -198,12 +198,12 @@ Mapping → Testing → Ready for Production → Production.
 
 - **Population**: the person's CRs that reached **Ready For Production or Production**
   (in-flight CRs never count), assigned to the **year of their production date**
-  (RFP falling back to Production — the same rule as §6, so the population matches the
+  (RFP falling back to Production - the same rule as §6, so the population matches the
   "total production: N CRs in {year}" figure exactly).
 - The year dropdown lists the person's production years.
 - **All completed stage intervals** of those CRs count toward that year, regardless of which
   year each individual stage finished.
-- Stages measured: **Dataset Validation onward** — Pending Start, Requirements Gathering and
+- Stages measured: **Dataset Validation onward** - Pending Start, Requirements Gathering and
   Resource Assignment are excluded by design.
 - **Average** = arithmetic mean of interval lengths in days ÷ 7, shown as weeks with 1 decimal.
   Bars are scaled relative to the slowest stage.
@@ -216,7 +216,7 @@ Mapping → Testing → Ready for Production → Production.
   (population standard deviation).
 - Confidence selector: 90% (z = 1.645), 95% (z = 1.96), **99% (z = 2.576, default)**, or off.
 - Samples with fewer than 3 intervals are never trimmed; σ = 0 skips trimming.
-- Removed CRs are listed under the stage (click "N outliers removed"): CR link, client — carrier,
+- Removed CRs are listed under the stage (click "N outliers removed"): CR link, client - carrier,
   duration, and the exact date range.
 
 ---
@@ -248,7 +248,7 @@ Mapping → Testing → Ready for Production → Production.
 
 ## 10. Caching & refresh
 
-- Uploads are cached in **IndexedDB** (`analystDashDB`), shared by both pages — upload once,
+- Uploads are cached in **IndexedDB** (`analystDashDB`), shared by both pages - upload once,
   both views update. (localStorage was abandoned: its ~5 MB quota silently truncated full reports;
   an old localStorage copy is migrated once, then cleared.)
 - On load, a cached upload is used only if its date is **strictly newer** than the embedded
@@ -266,13 +266,13 @@ Sorted with people who have active connections first, then alphabetically.
 
 ### Deep linking
 
-`index.html#emp=<name>` opens the analyst page already showing that person — this is what the
+`index.html#emp=<name>` opens the analyst page already showing that person - this is what the
 analyst names in the Team Overview's workload tables link to (§12.2, §12.3). The name is matched
 against the dropdown case-insensitively, exact first then as a substring, so it survives a partial
 or URL-encoded name.
 
-- The link applies **on first load only** (`curEmp` is null exactly once), so a later re-render —
-  after an upload, say — never drags the viewer back to the linked person.
+- The link applies **on first load only** (`curEmp` is null exactly once), so a later re-render -
+  after an upload, say - never drags the viewer back to the linked person.
 - `hashchange` is also followed, so the browser's back/forward buttons work after arriving from the
   team page.
 - Ignored on a single-analyst page, which only ever holds its owner's rows.
@@ -283,8 +283,8 @@ or URL-encoded name.
 
 ## 12. Workload sheet (Team Overview)
 
-Four sections of `team.html` — *Analyst queue*, *Requirements gathering queue*, *Monthly ledger*
-and *Quarter summary* — reproduce the **New Orders Assignments – WorkLoad Sheet** workbook from the
+Four sections of `team.html` - *Analyst queue*, *Requirements gathering queue*, *Monthly ledger*
+and *Quarter summary* - reproduce the **New Orders Assignments – WorkLoad Sheet** workbook from the
 CR report itself, instead of from COUNTIFS formulas over an external link.
 
 ### 12.1 Source-column mapping
@@ -321,24 +321,24 @@ page). The workbook instead tested the partner name against
 
 ### 12.2 Analyst queue
 
-Per analyst, over CRs with status **In Progress** only (the workbook's rule) — so `Blocked`,
+Per analyst, over CRs with status **In Progress** only (the workbook's rule) - so `Blocked`,
 `On Hold` and `Not Started` are all outside this table by construction:
 
-- **Not started** — EDI, Stage = Dataset Validation, no Assignment Date.
-- **Dataset val.** — EDI, Stage = Dataset Validation, with an Assignment Date.
-- **Mapping / Testing / Ready for prod** — EDI at that stage.
+- **Not started** - EDI, Stage = Dataset Validation, no Assignment Date.
+- **Dataset val.** - EDI, Stage = Dataset Validation, with an Assignment Date.
+- **Mapping / Testing / Ready for prod** - EDI at that stage.
 - **Queue** = Not started + Dataset val. + Mapping + Testing + all open Forms
   (`C = SUM(D:G)` and `Q = C + K` in the workbook). Ready-for-production is *not* in the queue.
-- **Forms columns** — Open (all in-progress Forms), Mapping (Stage = Mapping **or** Dataset
+- **Forms columns** - Open (all in-progress Forms), Mapping (Stage = Mapping **or** Dataset
   Validation), Testing, Migration test (Stage = Migration Testing), Live (status Live, Stage =
-  Production — any status, so it is not part of the queue).
-- **Last assigned** — newest Assignment Date among those CRs; amber at `ASSIGN_WARN` (4) **working**
+  Production - any status, so it is not part of the queue).
+- **Last assigned** - newest Assignment Date among those CRs; amber at `ASSIGN_WARN` (4) **working**
   days, red at `ASSIGN_BAD` (7), using the §4.2 weekend rule (Friday & Saturday excluded) so a
   normal weekend cannot flag an analyst on its own. The hover shows both the working-day count and
   the calendar-day count. A gap here means nobody has handed that analyst work since.
-- **Assigned CRs \<year\>** — CRs with an Assignment Date created in that year, any status. Only the
+- **Assigned CRs \<year\>** - CRs with an Assignment Date created in that year, any status. Only the
   two most recent years present in the data are shown.
-- **vs expected** — Queue ÷ expected queue (default **20**, editable in the heading and remembered
+- **vs expected** - Queue ÷ expected queue (default **20**, editable in the heading and remembered
   in `localStorage`). Amber over 100%, red over 150%.
 - The **Forms Open** cell turns amber above `FORMS_WARN` (3), reproducing the workbook's
   conditional-format rule on column K.
@@ -359,11 +359,11 @@ Chips above the table carry the workbook's summary cells:
 ### 12.3 Requirements gathering queue
 
 Active CRs with Stage = Requirements Gathering, per analyst, against an expected queue of **40**.
-Alongside it: CRs awaiting assignment (Stage = Resource Assignment, **whoever** holds them — the
+Alongside it: CRs awaiting assignment (Stage = Resource Assignment, **whoever** holds them - the
 workbook counted two hard-coded names), and unassigned CRs in Pending Start.
 
 **`Blocked` is excluded from all three.** A blocked CR is active but nobody is moving it, so it is
-not part of a queue — the same reasoning that sets blocked work aside on the analyst page (*Paused
+not part of a queue - the same reasoning that sets blocked work aside on the analyst page (*Paused
 connections*, §1). The footnote reports how many were left out. `On Hold` and `Not Started` still
 count here; "pending start, no analyst" would be empty otherwise, since those CRs are Not Started
 by definition.
@@ -379,7 +379,7 @@ One column per **creation month**; the status rows are where those CRs stand *to
 - **CRs created** = every CR created that month, then split by current status.
 - **Child CRs** = created that month and booked to `CHILD_OWNER` (`Dina Medhat`), excluding
   cancelled ones so the subtraction below cannot double-count.
-- **Net intake** = Not started + In progress + Live + On hold + Blocked − Child CRs — i.e. work
+- **Net intake** = Not started + In progress + Live + On hold + Blocked − Child CRs - i.e. work
   that actually had to be delivered.
 - **Migrations / Forms / Forms cancelled** = created that month, non-cancelled (cancelled for the
   last), of that kind.
@@ -392,7 +392,7 @@ One column per **creation month**; the status rows are where those CRs stand *to
 
 **Window.** Only ~400 days of intake are embedded, so months before that would under-count. The
 ledger starts at the first *whole* month after that boundary and shows at most `WL_MONTHS` (18).
-The as-of month is marked `*` — it only runs to the report date.
+The as-of month is marked `*` - it only runs to the report date.
 
 ### 12.5 Quarter summary
 
@@ -402,8 +402,8 @@ the per-month figures stay comparable.
 
 Two ratios, as the workbook carried:
 
-- **Output / intake** (row 51) — the quarter's production against its own intake.
-- **Output / previous intake** (row 52) — against the *previous* quarter's intake. Work booked in
+- **Output / intake** (row 51) - the quarter's production against its own intake.
+- **Output / previous intake** (row 52) - against the *previous* quarter's intake. Work booked in
   one quarter mostly lands in the next, so this is the fairer read of whether the team kept up.
 
 The workbook divided every quarter by a literal 3; the page divides by the quarter's actual month
@@ -423,7 +423,7 @@ The live version deliberately differs from the spreadsheet where the spreadsheet
   by a literal 3 even when it held fewer months;
 - "awaiting assignments" and "child CRs" were hard-coded to two analyst names;
 - on the `Dates` helper sheet, **Mai Atef's** latest-assignment formula read *Hady Sherif's* column
-  (`AA`) — Mai Atef had no column of their own — and Hady Sherif's own range was off by one row
+  (`AA`) - Mai Atef had no column of their own - and Hady Sherif's own range was off by one row
   (`AA3:AA49` where every other analyst used `4:50`);
 - `Sheet1` was a scratch copy of five former team members whose row labels did not match the names
   inside its own formulas.
