@@ -1199,7 +1199,7 @@ const MS = {"Requirements Gathering":"RG","Resource Assignment":"RA","Dataset Va
   "Production":"Production","First Test File":"First test file","First Production File":"First prod file"};
 const $ = s => document.querySelector(s);
 const fmt = d => d || '-';
-const BASE = 'https://d24ep0r8pqsi0a.cloudfront.net';
+const BASE = 'https://carrierconnect.myisolved.com';
 const crUrl = id => `${BASE}/ConnectivityRequests/ViewConnectivityRequest/${id}`;
 const aiUrl = (crId, aiId) => `${BASE}/ActionItems/ViewConnectivityRequest/${crId}/ViewActionItem/${aiId}`;
 const oeUrl = (crId, oeId) => `${BASE}/OERequests/ViewConnectivityRequest/${crId}/ViewOERequest/${oeId}`;
@@ -2763,7 +2763,7 @@ const STAGE_COLORS = Array.from({length:8}, (_,i)=>`var(--s${i})`);
 // an action item pending on one of these is waiting on someone outside the team
 const EXTERNAL = /carrier|client|partner|vendor/i;
 const $ = s => document.querySelector(s);
-const BASE = 'https://d24ep0r8pqsi0a.cloudfront.net';
+const BASE = 'https://carrierconnect.myisolved.com';
 const crUrl = id => `${BASE}/ConnectivityRequests/ViewConnectivityRequest/${id}`;
 // same route the analyst page uses - an OE is addressed through its parent CR
 const oeUrl = (crId, oeId) => `${BASE}/OERequests/ViewConnectivityRequest/${crId}/ViewOERequest/${oeId}`;
