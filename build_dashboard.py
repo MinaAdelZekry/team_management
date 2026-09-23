@@ -676,7 +676,15 @@ def main():
         mask |= cr["Request ID"].isin(ai["ConnectivityRequestID"].dropna())
     oe_recs = []
     if oe is not None:
-        oe_recs = records(oe[oe["Status"].isin(ACTIVE)], OE_KEEP)
+        # Active OE requests drive the queue. On top of those, keep EVERY status
+        # (completed and cancelled included) for plan years starting this
+        # calendar year or later, because the team page's "PY <year>" column
+        # counts the whole year's assigned work, not just what is still open.
+        # Older closed plan years are still dropped - they would multiply the
+        # payload for a column that never looks at them.
+        oe_pys = pd.to_datetime(oe["PlanYearStartDate"], errors="coerce")
+        oe_keep = oe["Status"].isin(ACTIVE)             | (oe_pys.dt.year >= datetime.now().year - 1)
+        oe_recs = records(oe[oe_keep.fillna(False)], OE_KEEP)
     ms_recs = []
     if ms is not None:
         if "MigrationTestingDate" in ms.columns:
@@ -1191,6 +1199,11 @@ const OE_ACTIVE = new Set(["In Progress","Not Started"]);
 const oeDraft = r => { const t = txt(r['IsDraftOERequest']).toLowerCase();
   return r['IsDraftOERequest']===true || t==='1' || t==='true' || t==='yes'; };
 const oeLive = r => OE_ACTIVE.has(txt(r['Status'])) && !oeDraft(r);
+// Which OE rows a sheet uploaded here is allowed to keep - the mirror of the
+// build's filter: anything active, plus every status for plan years starting
+// last calendar year or later - the PY columns show this year and the one before.
+const oeKeep = r => ACTIVE.has(txt(r['Status']))
+  || String(toISO(r['PlanYearStartDate']) || '').slice(0,4) >= String(new Date().getFullYear() - 1);
 // active, but nobody is moving them right now: set aside from the in-progress
 // list into their own section so the active count means work actually running
 const PAUSED = new Set(["On Hold","Blocked"]);
@@ -2359,7 +2372,7 @@ $('#files').onchange = async e => {
       const cols = new Set(Object.keys(rows[0]||{}));
       const tags = [];
       if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); colErrs.push(...colProblems('AI', rows, EXPECT.ai)); }
-      else if(cols.has('OERequestID')){ colErrs.push(...colProblems('OE', rows, EXPECT.oe)); newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
+      else if(cols.has('OERequestID')){ colErrs.push(...colProblems('OE', rows, EXPECT.oe)); newOe=rows.filter(oeKeep); oeDate=fileDate(f); tags.push('OE'); }
       else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); colErrs.push(...colProblems('CR', rows, EXPECT.cr)); }
       // MigrationSummary - EVERY sheet carrying MigrationTestingDate, since the
       // report splits migrations across sheets (eBN / EB); taking only the first
@@ -2715,6 +2728,10 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
   <h2>Monthly ledger <span class="note">&middot; every CR created each month, by the status it holds today, against what reached production</span></h2>
   <div class="card" id="wl-ledger"></div>
 
+  <h2>Production by analyst <span class="note">&middot; who took what to production each month &middot;
+    counted on Ready-for-Production date (Production date if RFP is empty), the same rule as the analyst view</span></h2>
+  <div class="card" id="prodmatrix"></div>
+
   <h2>Quarter summary <span class="note">&middot; input vs output per calendar quarter</span></h2>
   <div class="card" id="wl-quarter"></div>
 
@@ -2759,6 +2776,11 @@ const OE_ACTIVE = new Set(["In Progress","Not Started"]);
 const oeDraft = r => { const t = txt(r['IsDraftOERequest']).toLowerCase();
   return r['IsDraftOERequest']===true || t==='1' || t==='true' || t==='yes'; };
 const oeLive = r => OE_ACTIVE.has(txt(r['Status'])) && !oeDraft(r);
+// Which OE rows a sheet uploaded here is allowed to keep - the mirror of the
+// build's filter: anything active, plus every status for plan years starting
+// last calendar year or later - the PY columns show this year and the one before.
+const oeKeep = r => ACTIVE.has(txt(r['Status']))
+  || String(toISO(r['PlanYearStartDate']) || '').slice(0,4) >= String(new Date().getFullYear() - 1);
 const STAGE_COLORS = Array.from({length:8}, (_,i)=>`var(--s${i})`);
 // an action item pending on one of these is waiting on someone outside the team
 const EXTERNAL = /carrier|client|partner|vendor/i;
@@ -3144,13 +3166,35 @@ function workloadSheet(){
   const blockedOut = cr.filter(r=>statusIs(r,'Blocked')
     && ['Requirements Gathering','Resource Assignment','Pending Start']
        .some(s=>stageIs(r,s))).length;
+  // This whole section is Regular OE requests only - "One Time" requests are
+  // ad-hoc work, not part of the open-enrollment cycle the queue plans for.
+  // Drafts never count. Two pools: every status the report carries, and the
+  // narrower "live" one the queue columns work from.
+  // every status the report carries - completed and cancelled included - so the
+  // PY column is the year's whole assigned workload, not just what is still open
+  const oeRegularAny = (RAW.oe || []).filter(r=>!oeDraft(r))
+    .filter(r=>txt(r['RequestType']).toLowerCase()==='regular');
+  const oeRegular = oeRegularAny.filter(r=>OE_ACTIVE.has(txt(r['Status'])));
   // Same rule as the Active OEs KPI - live (not blocked, on hold or draft) -
   // plus one more: a request whose plan year has already started is dropped,
   // because the queue counts forward-looking work and those are chased from the
   // Needs attention list instead. An OE with no plan year start cannot be
   // judged, so it stays in. Re-applied to uploads, not just embedded rows.
-  const oeActive = (RAW.oe || []).filter(oeLive)
+  const oeActive = oeRegular
     .filter(r=>{ const pysd = toISO(r['PlanYearStartDate']); return !pysd || pysd >= asOf; });
+  // The year column is a full-year total of everything assigned, so it counts
+  // from oeRegularAny: blocked and on-hold requests are still assigned work,
+  // and plan years that have already started still belong to the year. Only
+  // active-status OEs are ever embedded, so it can never include requests
+  // already completed or cancelled.
+  const oeYear = asOf.slice(0,4);
+  const oePrevYear = String(Number(oeYear) - 1);
+  const oeIsJan = r => (toISO(r['PlanYearStartDate'])||'').slice(5,7)==='01';
+  const oeInYear = y => oeRegularAny.filter(r=>{ const pysd = toISO(r['PlanYearStartDate']);
+    return pysd && pysd.slice(0,4)===y; });
+  const oeThisYear = oeInYear(oeYear), oePrevList = oeInYear(oePrevYear);
+  const oeJanList = oeThisYear.filter(oeIsJan);
+  const oePrevJanList = oePrevList.filter(oeIsJan);
   const latestOf = (list, f) => { const ds = list.map(r=>toISO(r[f])).filter(Boolean).sort();
     return ds.length ? ds[ds.length-1] : null; };
   const latest = list => latestOf(list, 'Assignment Date');
@@ -3177,9 +3221,13 @@ function workloadSheet(){
 
   // --- per-analyst EDI / Forms queue (workbook rows 3-20) ---
   // OE names live in a different column and an analyst may hold OE work but no
-  // in-progress CR, so the roster is the union - otherwise they get no row at all
+  // in-progress CR, so the roster is the union - otherwise they get no row at
+  // all. oeThisYear is in the union too: a plan year already under way shows in
+  // the PY column but not in oeActive, and that number needs a row to sit in.
   const names = [...new Set([...inProg.map(r=>txt(r['Technical Contact'])),
-    ...oeActive.map(r=>txt(r['TechnicalContact']))].filter(Boolean))];
+    ...oeActive.map(r=>txt(r['TechnicalContact'])),
+    ...oeThisYear.map(r=>txt(r['TechnicalContact'])),
+    ...oePrevList.map(r=>txt(r['TechnicalContact']))].filter(Boolean))];
   const years = [...new Set(cr.map(r=>monthOf(toISO(r['Intake Date'])))
     .filter(Boolean).map(m=>m.slice(0,4)))].sort().slice(-2);
   const rows = names.map(a=>{
@@ -3213,6 +3261,15 @@ function workloadSheet(){
     q.oeWaiting  = oeAt(myOe, 'Waiting for OE Data');
     q.oeSending  = oeAt(myOe, 'Sending OE File');
     q.oeConfirm  = oeAt(myOe, 'Get Carrier Confirmation', 'Completed');
+    const mine_ = y => y.filter(r=>txt(r['TechnicalContact'])===a);
+    const myYear = mine_(oeThisYear), myPrev = mine_(oePrevList);
+    q.oeYearJan  = myYear.filter(oeIsJan).length;
+    q.oeYearRest = myYear.length - q.oeYearJan;
+    q.oePrevJan  = myPrev.filter(oeIsJan).length;
+    q.oePrevRest = myPrev.length - q.oePrevJan;
+    // not a column - just the row filter's "has plan-year work in either year"
+    // test, so an analyst whose only OE work is a closed plan year still gets a row
+    q.oePyAny    = myYear.length + myPrev.length;
     q.load  = q.notStarted + q.dataset + q.mapping + q.testing;   // workbook C = SUM(D:G)
     q.queue = q.load + q.forms;                                    // workbook Q = C + K
     // "Total CRs (year)": assigned EDI CRs created in that year, any status
@@ -3221,7 +3278,7 @@ function workloadSheet(){
     return q;
   // an analyst whose only in-progress work is Requirements Gathering or Resource
   // Assignment belongs to the RG table, not this one - no all-zero rows here
-  }).filter(q=>q.queue || q.rfp || q.fProd || q.oe)
+  }).filter(q=>q.queue || q.rfp || q.fProd || q.oe || q.oePyAny)
     .sort((x,y)=>y.queue-x.queue || x.a.localeCompare(y.a));
 
   // --- requirements gathering (workbook "RG CRs" sheet) ---
@@ -3275,6 +3332,8 @@ function workloadSheet(){
       forms: made.filter(r=>isForms(r) && !statusIs(r,'Cancelled')).length,
       formsCanc: made.filter(r=>isForms(r) && statusIs(r,'Cancelled')).length,
       ffile: cr.filter(r=>monthOf(toISO(r['First Production File']))===m).length,
+      rfp: cr.filter(r=>monthOf(toISO(r['Ready For Production']))===m
+        && !toISO(r['Production'])).length,
       prod: cr.filter(r=>monthOf(toISO(r['Production']))===m).length,
       prodChild: cr.filter(r=>txt(r['Technical Contact'])===CHILD_OWNER && statusIs(r,'Live')
         && inProd(r,false) && monthOf(toISO(r['Production']))===m).length};
@@ -3305,6 +3364,10 @@ function workloadSheet(){
     pendingStart, live, ledger, quarters, months, cutM, types, grandQueue, childInProg,
     queueTotal, rfpTotal, rgTotal, blockedOut, oeTotal: oeActive.length, oeUnassigned,
     oeSoon: oeSoonList.length, oeThisMonth, oeLater, oeNoPysd, soonMonth, soonStart, soonEnd,
+    oeYear, oePrevYear, oeYearTotal: oeThisYear.length,
+    oeYearJanTotal: oeJanList.length, oeYearRestTotal: oeThisYear.length - oeJanList.length,
+    oePrevTotal: oePrevList.length, oePrevJanTotal: oePrevJanList.length,
+    oePrevRestTotal: oePrevList.length - oePrevJanList.length,
     formsTypes: types.filter(t=>/form/i.test(t)), inProg: inProg.length};
 }
 
@@ -3350,6 +3413,7 @@ function renderWorkload(){
       <tr><th class="lbl"></th><th colspan="2" class="grp">Load</th>
         <th colspan="6" class="grp">EDI</th><th colspan="6" class="grp">Forms</th>
         <th colspan="6" class="grp">OE</th>
+        <th colspan="2" class="grp">PY ${w.oePrevYear}</th><th colspan="2" class="grp">PY ${w.oeYear}</th>
         <th colspan="${w.years.length}" class="grp">Assigned CRs</th></tr>
       <tr><th class="lbl">Analyst</th>
         <th class="grp">Queue</th><th>vs expected</th>
@@ -3358,7 +3422,8 @@ function renderWorkload(){
         <th class="grp">Open</th><th>Mapping</th><th>Testing</th><th>Migration test</th>
         <th>Live</th><th>Last assigned</th>
         <th class="grp">Assigned</th><th>Not started</th><th>Gathering</th><th>Waiting for data</th>
-        <th>Sending file</th><th>Confirm / done</th>${yrCols}</tr>
+        <th>Sending file</th><th>Confirm / done</th>
+        <th class="grp">Jan</th><th>Feb-Dec</th><th class="grp">Jan</th><th>Feb-Dec</th>${yrCols}</tr>
     </thead>
     <tbody>
       ${w.rows.map(r=>`<tr>
@@ -3366,7 +3431,7 @@ function renderWorkload(){
         ${n(r.queue,'grp')}${capBar(r.queue, wlExpect)}
         ${n(r.notStarted,'grp')}${n(r.dataset)}${n(r.mapping)}${n(r.testing)}${n(r.rfp)}${dcell(r.ediDate)}
         ${n(r.forms, 'grp'+(r.forms>FORMS_WARN?' warn':''))}${n(r.fMapping)}${n(r.fTesting)}${n(r.fMig)}${n(r.fProd)}${dcell(r.formsDate)}
-        ${n(r.oe,'grp')}${n(r.oeNotStart)}${n(r.oeGather)}${n(r.oeWaiting)}${n(r.oeSending)}${n(r.oeConfirm)}
+        ${n(r.oe,'grp')}${n(r.oeNotStart)}${n(r.oeGather)}${n(r.oeWaiting)}${n(r.oeSending)}${n(r.oeConfirm)}${n(r.oePrevJan,'grp')}${n(r.oePrevRest)}${n(r.oeYearJan,'grp')}${n(r.oeYearRest)}
         ${r.byYear.map((v,i)=>n(v, i?'':'grp')).join('')}
       </tr>`).join('')}
     </tbody>
@@ -3374,7 +3439,7 @@ function renderWorkload(){
       ${n(sum('queue'),'grp')}${capBar(sum('queue'), wlExpect*w.rows.length)}
       ${n(sum('notStarted'),'grp')}${n(sum('dataset'))}${n(sum('mapping'))}${n(sum('testing'))}${n(sum('rfp'))}<td></td>
       ${n(sum('forms'),'grp')}${n(sum('fMapping'))}${n(sum('fTesting'))}${n(sum('fMig'))}${n(sum('fProd'))}<td></td>
-      ${n(sum('oe'),'grp')}${n(sum('oeNotStart'))}${n(sum('oeGather'))}${n(sum('oeWaiting'))}${n(sum('oeSending'))}${n(sum('oeConfirm'))}
+      ${n(sum('oe'),'grp')}${n(sum('oeNotStart'))}${n(sum('oeGather'))}${n(sum('oeWaiting'))}${n(sum('oeSending'))}${n(sum('oeConfirm'))}${n(sum('oePrevJan'),'grp')}${n(sum('oePrevRest'))}${n(sum('oeYearJan'),'grp')}${n(sum('oeYearRest'))}
       ${w.years.map((_,i)=>n(w.rows.reduce((a,r)=>a+r.byYear[i],0), i?'':'grp')).join('')}
     </tr></tfoot>
   </table></div>
@@ -3387,6 +3452,14 @@ function renderWorkload(){
     The OE columns are open-enrollment requests (active status only, from the OE report,
     bucketed across the seven OE stages) - they are a separate queue and are deliberately
     <b>not</b> included in "Queue" or the capacity bar, so those keep matching the workbook.
+    Only <b>Regular</b> OE requests are counted anywhere in this section; "One Time" requests
+    are left out.     "PY ${w.oePrevYear}" and "PY ${w.oeYear}" are the year's assigned Regular OEs, each split by the
+    month the plan year starts - January is the renewal wave, "Feb-Dec" is everything from February
+    on. They count every status: completed, cancelled, blocked and on-hold included, so they are the
+    whole assigned workload for that year and are much larger than "Assigned", which counts only
+    forward-looking work still open. Drafts never count. Team totals - ${w.oePrevYear}:
+    <b>${w.oePrevJanTotal}</b> January, <b>${w.oePrevRestTotal}</b> rest; ${w.oeYear}:
+    <b>${w.oeYearJanTotal}</b> January, <b>${w.oeYearRestTotal}</b> rest.
     "Assigned" is every open OE request that names the analyst whose plan year has not
     started yet; ones already past their PlanYearStartDate are left out here and listed
     under Needs attention instead. Drafts are never counted. Every OE with no technical
@@ -3455,6 +3528,7 @@ function renderWorkload(){
     <thead><tr><th class="lbl">Produced in month</th>${mhead}<th class="grp">Total</th></tr></thead>
     <tbody>
       ${line('First production file','ffile')}
+      ${line('Ready for production','rfp')}
       ${line('Production date','prod')}
       ${line('&nbsp;&nbsp;Child CRs','prodChild')}
       ${line('Net production','actual','tot')}
@@ -3462,7 +3536,11 @@ function renderWorkload(){
         ${L.map(r=>ratioCell(r.ratio)).join('')}<td class="grp"></td></tr>
     </tbody>
   </table></div>
-  <div class="hnote">Each column is a creation month; the status rows are where those CRs stand
+  <div class="hnote">The lower block counts CRs by the date named, not by when they were created,
+    so a CR can sit in one column above and another below. "Ready for production" counts only CRs
+    that reached Ready-For-Production in that month and have <i>no</i> Production date yet - work
+    that is ready but not out - so it never counts the same CR as the row below it.
+    Each column is a creation month; the status rows are where those CRs stand
     <i>today</i>, not where they stood then. "Net intake" is everything except cancellations and
     child CRs - the work that actually had to be delivered. Output is matched against the intake
     ${WL_LAG} months earlier, so a month under 100% means the team took in more than it cleared
@@ -3495,6 +3573,50 @@ function renderWorkload(){
 }
 
 // ---------- render ----------
+// Production per analyst per month. t.prod is built with exactly the rule the
+// analyst view's "Monthly production" uses - a CR counts in the month of its
+// Ready-for-Production date, falling back to the Production date, credited to
+// its Technical Contact - so this reads that same list rather than recomputing
+// it, and the two views cannot drift apart.
+function renderProdMatrix(t){
+  const months = t.win;
+  const box = $('#prodmatrix');
+  if(!months.length){ box.innerHTML = '<div class="empty">No production in the data.</div>'; return; }
+  const inWin = new Set(months);
+  const by = {};
+  t.prod.forEach(p=>{ if(!inWin.has(p.m)) return;
+    const k = p.tc || '';                       // no technical contact -> its own row
+    (by[k] = by[k] || {})[p.m] = (by[k][p.m] || 0) + 1; });
+  const list = Object.entries(by)
+    .map(([a, m])=>({a, m, total: months.reduce((s,x)=>s+(m[x]||0), 0)}))
+    .filter(r=>r.total)
+    .sort((x,y)=>y.total-x.total || x.a.localeCompare(y.a));
+  if(!list.length){ box.innerHTML = '<div class="empty">No production in the last '
+    + months.length + ' months.</div>'; return; }
+  const cell = (v, cls='') => `<td class="${[cls, v?'':'zero'].filter(Boolean).join(' ')}">${v||0}</td>`;
+  // the analyst dashboard reads #emp= on load and opens on that person
+  const who = name => name
+    ? `<a class="lnk" href="index.html#emp=${encodeURIComponent(name)}"
+        title="Open ${esc(name)} in the analyst dashboard">${esc(name)}</a>`
+    : '<i>unassigned</i>';
+  const colTot = m => list.reduce((s,r)=>s+(r.m[m]||0), 0);
+  const grand = list.reduce((s,r)=>s+r.total, 0);
+  box.innerHTML = `<div class="wscroll"><table class="wtbl">
+    <thead><tr><th class="lbl">Analyst</th>${months.map(m=>`<th>${m}</th>`).join('')}
+      <th class="grp">Total</th></tr></thead>
+    <tbody>${list.map(r=>`<tr><th class="lbl">${who(r.a)}</th>
+      ${months.map(m=>cell(r.m[m])).join('')}${cell(r.total, 'grp')}</tr>`).join('')}</tbody>
+    <tfoot><tr class="tot"><th class="lbl">Totals</th>
+      ${months.map(m=>cell(colTot(m))).join('')}${cell(grand, 'grp')}</tr></tfoot>
+  </table></div>
+  <div class="hnote">A CR is counted in the month of its Ready-for-Production date, or its Production
+    date when RFP is empty, and credited to its Technical Contact - the same rule as the analyst
+    view's monthly production, so a person's row here matches their own page. Every status counts,
+    including CRs cancelled after they reached production. Showing the last ${months.length} months
+    (${months[0]} to ${months.at(-1)}); ${grand} production${grand===1?'':'s'} across
+    ${list.length} ${list.length===1?'person':'people'}.</div>`;
+}
+
 function render(){
   const t = teamStats();
   $('#gen').innerHTML = dateChips();
@@ -3561,6 +3683,9 @@ function render(){
 
   // --- the workload sheet, recomputed from the same rows ---
   renderWorkload();
+
+  // --- production per analyst per month ---
+  renderProdMatrix(t);
 
   // --- needs attention ---
   const now = new Date(t.asOf+'T00:00:00Z');
@@ -3754,7 +3879,7 @@ $('#files').onchange = async e => {
       const cols = new Set(Object.keys(rows[0]||{}));
       const tags = [];
       if(cols.has('ActionItemID')||cols.has('CurrentlyPendingOn')){ newAi=rows; aiDate=fileDate(f); tags.push('AI'); colErrs.push(...colProblems('AI', rows, EXPECT.ai)); }
-      else if(cols.has('OERequestID')){ colErrs.push(...colProblems('OE', rows, EXPECT.oe)); newOe=rows.filter(r=>ACTIVE.has(txt(r['Status']))); oeDate=fileDate(f); tags.push('OE'); }
+      else if(cols.has('OERequestID')){ colErrs.push(...colProblems('OE', rows, EXPECT.oe)); newOe=rows.filter(oeKeep); oeDate=fileDate(f); tags.push('OE'); }
       else if(cols.has('Request ID')){ newCr=rows; crDate=fileDate(f); tags.push('CR'); colErrs.push(...colProblems('CR', rows, EXPECT.cr)); }
       // MigrationSummary - EVERY sheet carrying MigrationTestingDate, since the
       // report splits migrations across sheets (eBN / EB); taking only the first
