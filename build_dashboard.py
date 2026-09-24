@@ -2,12 +2,12 @@
 Analyst Connectivity Dashboard generator.
 
 Usage:
-    python build_dashboard.py <ConnectivityRequests.xlsx> <ActionItems.xlsx> [OERequests.xlsx] [output.html]
+    python build_dashboard.py <ConnectivityRequests.xlsx> <ActionItems.xlsx> [OERequests.xlsx]
 
-Produces two self-contained interactive HTML dashboards from the same data:
-the analyst page (grouped by Technical Contact, written to the output path)
-and an iSolved page (grouped by iSolved Contact, written to isolved.html next
-to it), linked to each other in the header. The dashboards themselves can be
+Produces three self-contained interactive HTML dashboards from the same data:
+the team overview (index.html - the landing page), the analyst page
+(analyst.html, grouped by Technical Contact) and the iSolved page
+(isolved.html, grouped by iSolved Contact), linked to each other in the header. The dashboards themselves can be
 refreshed later by uploading new CR / AI Excel exports directly in the page
 (no need to rerun this script).
 
@@ -55,6 +55,14 @@ ANALYST_PW_FILE = "analyst_passwords.json"
 # per-analyst pages are written here, next to the shared views, one file per
 # person named after their slug (the folder already says "analyst")
 ANALYST_DIR = "analysts"
+
+# The three shared views. index.html is what a bare site URL opens, so the team
+# overview lives there; the analyst and iSolved views get their own names. Fixed
+# rather than taken from the command line - the output argument used to default
+# to Analyst_Dashboard.html, which quietly left index.html stale.
+TEAM_FILE = "index.html"
+ANALYST_FILE = "analyst.html"
+ISOLVED_FILE = "isolved.html"
 
 # Pages that show a hand-picked group instead of only their owner's work.
 # Key = the analyst whose page it is; value = the names selectable in that
@@ -649,9 +657,15 @@ def main():
     # browser). Per-analyst pages still slice an upload down to their owner.
     no_data = "--no-data" in args
     args = [a for a in args if a not in ("--warn-only", "--no-data")]
-    out = "Analyst_Dashboard.html"
+    # an output path used to be accepted here; the names are fixed now, so a
+    # stray one only picks the folder, with a note saying what was written
+    out_dir = ""
     if args and args[-1].lower().endswith((".html", ".htm")):
-        out = args.pop()
+        stray = args.pop()
+        out_dir = os.path.dirname(stray)
+        print(f"Note: page names are fixed - ignoring '{os.path.basename(stray)}'; writing "
+              f"{TEAM_FILE} (main), {ANALYST_FILE}, {ISOLVED_FILE}.")
+    out = os.path.join(out_dir, ANALYST_FILE)
     if len(args) < 2:
         sys.exit(__doc__)
     cr_path, ai_path, oe_path = detect(args)
@@ -764,14 +778,14 @@ def main():
                 .replace("__REPHIDE__", ' style="display:none"' if owner else ""))
 
     # --- manager views: full data, linked to each other, one shared password ---
-    iso_out = os.path.join(os.path.dirname(out), "isolved.html")
-    team_out = os.path.join(os.path.dirname(out), "team.html")
+    iso_out = os.path.join(out_dir, ISOLVED_FILE)
+    team_out = os.path.join(out_dir, TEAM_FILE)
     link = '    <a class="viewlink" href="%s">%s &rarr;</a>\n'
 
-    nav_tc = (link % (os.path.basename(iso_out), "Switch to iSolved view")
-              + link % ("team.html", "Team overview")).rstrip("\n")
-    nav_iso = (link % (os.path.basename(out), "Switch to Analyst view")
-               + link % ("team.html", "Team overview")).rstrip("\n")
+    nav_tc = (link % (ISOLVED_FILE, "Switch to iSolved view")
+              + link % (TEAM_FILE, "Team overview")).rstrip("\n")
+    nav_iso = (link % (ANALYST_FILE, "Switch to Analyst view")
+               + link % (TEAM_FILE, "Team overview")).rstrip("\n")
 
     with open(out, "w", encoding="utf-8") as f:
         f.write(wrap_encrypted(
@@ -785,9 +799,10 @@ def main():
         f.write(wrap_encrypted(
             TEAM_TEMPLATE.replace("__RAW__", raw_json).replace("__EXPECT__", expect_json)
                          .replace("__ACTIVE_ANALYSTS__",
-                                  json.dumps(ACTIVE_ANALYSTS, ensure_ascii=False)),
+                                  json.dumps(ACTIVE_ANALYSTS, ensure_ascii=False))
+                         .replace("__ANALYST_FILE__", ANALYST_FILE),
             "Team Overview", password))
-    print(f"Wrote {out} + {iso_out} + {team_out} (encrypted): {int(mask.sum())} CR rows, "
+    print(f"Wrote {team_out} (main) + {out} + {iso_out} (encrypted): {int(mask.sum())} CR rows, "
           f"{len(ai)} AI rows, {len(oe_recs)} OE rows, {len(ms_recs)} MS rows embedded")
 
     # the split only works if the names match the reports, so say so at build time
@@ -1570,7 +1585,7 @@ function process(crRows, aiRows, oeRows, generated){
 // Browser storage is per-ORIGIN, so every page in this site shares one
 // IndexedDB. An analyst page stores its data already sliced to that analyst, so
 // with a shared key its upload would overwrite the full copy the manager pages
-// read back - which made index.html show only one analyst. Scope the key to the
+// read back - which made the shared analyst page show only one analyst. Scope it to the
 // owner: analyst pages get their own slot, the shared views keep the full one.
 const DB_KEY = 'analystDash2' + (__PAGEID__ ? ':' + __PAGEID__ : '');
 const idb = () => new Promise((res,rej)=>{
@@ -1681,7 +1696,7 @@ function dateChips(){
     return `<span class="dchip ${idleCls(age)}" title="${age} working day${age===1?'':'s'} old">${k} <b>${v}</b></span>`;
   }).join('');
 }
-// deep link: the team overview links here as index.html#emp=Some%20Name, so a
+// deep link: the team overview links here as analyst.html#emp=Some%20Name, so a
 // name in its tables opens this page already showing that person. Ignored on a
 // single-analyst page, which only ever holds its owner's rows.
 function hashEmp(){
@@ -2736,7 +2751,7 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
   <div class="hleft">
     <h1>Team Overview</h1>
     <div class="sub"><span class="sublabel">Data as of</span> <span id="gen"></span></div>
-    <a class="viewlink" href="index.html">Analyst view &rarr;</a>
+    <a class="viewlink" href="__ANALYST_FILE__">Analyst view &rarr;</a>
     <a class="viewlink" href="isolved.html">iSolved view &rarr;</a>
   </div>
   <div class="hright">
@@ -3483,7 +3498,7 @@ function renderWorkload(){
   };
   const sum = k => w.rows.reduce((a,r)=>a+r[k],0);
   // the analyst dashboard reads #emp= on load and opens on that person
-  const who = name => `<a class="lnk" href="index.html#emp=${encodeURIComponent(name)}"
+  const who = name => `<a class="lnk" href="__ANALYST_FILE__#emp=${encodeURIComponent(name)}"
     title="Open ${esc(name)} in the analyst dashboard">${esc(name)}</a>`;
 
   // --- analyst queue -----------------------------------------------------
@@ -3696,7 +3711,7 @@ function renderProdMatrix(t){
   const cell = (v, cls='') => `<td class="${[cls, v?'':'zero'].filter(Boolean).join(' ')}">${v||0}</td>`;
   // the analyst dashboard reads #emp= on load and opens on that person
   const who = name => name
-    ? `<a class="lnk" href="index.html#emp=${encodeURIComponent(name)}"
+    ? `<a class="lnk" href="__ANALYST_FILE__#emp=${encodeURIComponent(name)}"
         title="Open ${esc(name)} in the analyst dashboard">${esc(name)}</a>`
     : '<i>unassigned</i>';
   const colTot = m => list.reduce((s,r)=>s+(r.m[m]||0), 0);
@@ -3862,7 +3877,7 @@ function dateChips(){
 }
 
 // ---------- cache (shared with the analyst / iSolved pages) ----------
-// shares the full-data slot with index.html / isolved.html; see the note in the
+// shares the full-data slot with analyst.html / isolved.html; see the note in the
 // analyst template about per-origin storage
 const DB_KEY = 'analystDash2';
 const idb = () => new Promise((res,rej)=>{
