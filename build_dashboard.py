@@ -2683,6 +2683,26 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
         background:var(--card);font-family:inherit}
   .wtbl thead th.lbl{z-index:2;background:var(--th-bg)}
   .wtbl tr.tot>th.lbl{background:var(--th-bg)}
+  /* Queue tables also freeze the Load pair, so an analyst's headline numbers stay
+     next to their name while the 25 columns to the right scroll. Sticky offsets
+     have to be literal pixels, so these three columns are given fixed widths -
+     scoped to .wqueue, since the ledger and RG tables need their labels to grow. */
+  /* .wscroll bleeds 18px past the card (margin:0 -18px;padding:0 18px), and that
+     padding strip stays visible inside the scrollport - so the frozen cells are
+     pulled 18px further left to cover it, with the label's padding put back so
+     its text does not move. Offsets: -18, -18+168, -18+168+64. */
+  .wqueue th.lbl,.wqueue td.lbl{width:168px;min-width:168px;max-width:168px;
+        overflow:hidden;text-overflow:ellipsis;left:-18px;padding-left:28px}
+  .wqueue th.st1,.wqueue td.st1{width:64px;min-width:64px}
+  .wqueue th.st2,.wqueue td.st2{width:92px;min-width:92px}
+  .wqueue th.st1,.wqueue td.st1,.wqueue th.st2,.wqueue td.st2{
+        position:sticky;z-index:1;background:var(--card)}
+  .wqueue th.st1,.wqueue td.st1{left:150px}
+  .wqueue th.st2,.wqueue td.st2{left:214px}
+  .wqueue thead th.st1,.wqueue thead th.st2{z-index:2;background:var(--th-bg)}
+  .wqueue tr.tot>td.st1,.wqueue tr.tot>td.st2{background:var(--th-bg)}
+  /* the frozen block needs an edge once the rest slides under it */
+  .wqueue th.st2,.wqueue td.st2{box-shadow:1px 0 0 var(--line)}
   .wtbl tbody tr:hover>td,.wtbl tbody tr:hover>th{background:var(--accent-soft)}
   .wtbl td{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
   .wtbl td.zero{color:var(--ink-soft);opacity:.55}
@@ -3435,11 +3455,11 @@ function renderWorkload(){
   const w = workloadSheet();
   const today = new Date(w.asOf+'T00:00:00Z');
   const n = (v, cls='') => `<td class="${v?cls:(cls+' zero').trim()}">${v}</td>`;
-  const capBar = (v, expect) => {
+  const capBar = (v, expect, cls='') => {
     const p = expect ? v/expect*100 : 0;
-    const cls = p>150 ? 'hot' : p>100 ? 'over' : '';
-    return `<td class="${cls==='hot'?'bad':cls==='over'?'warn':''}"><span class="capbar"
-      title="${v} of ${expect} expected"><i class="${cls}"
+    const bar = p>150 ? 'hot' : p>100 ? 'over' : '';
+    return `<td class="${[cls, p>150?'bad':p>100?'warn':''].filter(Boolean).join(' ')}"><span class="capbar"
+      title="${v} of ${expect} expected"><i class="${bar}"
       style="width:${Math.min(100,p)}%"></i></span>${expect?Math.round(p)+'%':'-'}</td>`;
   };
   // a gap since the last assignment means the analyst has stopped receiving work.
@@ -3470,15 +3490,15 @@ function renderWorkload(){
     </div>`;
   // One definition, rendered for each group: totals and the capacity bar are
   // computed from the rows handed in, so each section foots its own numbers.
-  const queueTable = rows => { const sum = k => rows.reduce((a,r)=>a+r[k],0); return `<div class="wscroll"><table class="wtbl">
+  const queueTable = rows => { const sum = k => rows.reduce((a,r)=>a+r[k],0); return `<div class="wscroll"><table class="wtbl wqueue">
     <thead>
-      <tr><th class="lbl"></th><th colspan="2" class="grp">Load</th>
+      <tr><th class="lbl"></th><th colspan="2" class="grp st1" style="left:150px;width:156px">Load</th>
         <th colspan="6" class="grp">EDI</th><th colspan="6" class="grp">Forms</th>
         <th colspan="6" class="grp">OE</th>
         <th colspan="2" class="grp">PY ${w.oePrevYear}</th><th colspan="2" class="grp">PY ${w.oeYear}</th>
         <th colspan="${w.years.length}" class="grp">Assigned CRs</th></tr>
       <tr><th class="lbl">Analyst</th>
-        <th class="grp">Queue</th><th>vs expected</th>
+        <th class="grp st1">Queue</th><th class="st2">vs expected</th>
         <th class="grp">Not started</th><th>Dataset val.</th><th>Mapping</th><th>Testing</th>
         <th>Ready for prod</th><th>Last assigned</th>
         <th class="grp">Open</th><th>Mapping</th><th>Testing</th><th>Migration test</th>
@@ -3490,7 +3510,7 @@ function renderWorkload(){
     <tbody>
       ${rows.map(r=>`<tr>
         <th class="lbl">${who(r.a)}</th>
-        ${n(r.queue,'grp')}${capBar(r.queue, wlExpect)}
+        ${n(r.queue,'grp st1')}${capBar(r.queue, wlExpect, 'st2')}
         ${n(r.notStarted,'grp')}${n(r.dataset)}${n(r.mapping)}${n(r.testing)}${n(r.rfp)}${dcell(r.ediDate)}
         ${n(r.forms, 'grp'+(r.forms>FORMS_WARN?' warn':''))}${n(r.fMapping)}${n(r.fTesting)}${n(r.fMig)}${n(r.fProd)}${dcell(r.formsDate)}
         ${n(r.oe,'grp')}${n(r.oeNotStart)}${n(r.oeGather)}${n(r.oeWaiting)}${n(r.oeSending)}${n(r.oeConfirm)}${n(r.oePrevJan,'grp')}${n(r.oePrevRest)}${n(r.oeYearJan,'grp')}${n(r.oeYearRest)}
@@ -3498,7 +3518,7 @@ function renderWorkload(){
       </tr>`).join('')}
     </tbody>
     <tfoot><tr class="tot"><th class="lbl">Totals</th>
-      ${n(sum('queue'),'grp')}${capBar(sum('queue'), wlExpect*rows.length)}
+      ${n(sum('queue'),'grp st1')}${capBar(sum('queue'), wlExpect*rows.length, 'st2')}
       ${n(sum('notStarted'),'grp')}${n(sum('dataset'))}${n(sum('mapping'))}${n(sum('testing'))}${n(sum('rfp'))}<td></td>
       ${n(sum('forms'),'grp')}${n(sum('fMapping'))}${n(sum('fTesting'))}${n(sum('fMig'))}${n(sum('fProd'))}<td></td>
       ${n(sum('oe'),'grp')}${n(sum('oeNotStart'))}${n(sum('oeGather'))}${n(sum('oeWaiting'))}${n(sum('oeSending'))}${n(sum('oeConfirm'))}${n(sum('oePrevJan'),'grp')}${n(sum('oePrevRest'))}${n(sum('oeYearJan'),'grp')}${n(sum('oeYearRest'))}
