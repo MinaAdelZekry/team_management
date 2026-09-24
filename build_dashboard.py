@@ -2771,8 +2771,8 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
     <input id="wexp" class="wnum" type="number" min="1" step="1" value="20"> EDI</span></h2>
   <div class="card" id="wl-queue"></div>
 
-  <h2>Inactive Analysts queue <span class="note">&middot; everyone still holding work who is not on the active list</span></h2>
-  <div class="card" id="wl-queue-inactive"></div>
+  <h2 id="inactoggle" style="cursor:pointer;user-select:none"><span id="inaccaret">&#9656;</span> Inactive Analysts queue <span class="note">&middot; everyone still holding work who is not on the active list &middot; click to expand</span></h2>
+  <div class="card" id="wl-queue-inactive" style="display:none"></div>
 
   <h2>Requirements gathering queue <span class="note">&middot; active CRs still being scoped &middot; expected queue
     <input id="wrgexp" class="wnum" type="number" min="1" step="1" value="40"> RG</span></h2>
@@ -3912,6 +3912,15 @@ function bindExpect(sel, key, dflt){
   el.onchange = apply;
   apply();
 }
+// the inactive queue is reference material rather than the daily view, so it
+// starts collapsed on every visit - nothing is remembered between visits
+function inacToggle(open){
+  $('#wl-queue-inactive').style.display = open ? '' : 'none';
+  $('#inaccaret').innerHTML = open ? '&#9662;' : '&#9656;';
+  $('#inactoggle').onclick = () => inacToggle(!open);
+}
+inacToggle(false);
+
 bindExpect('#wexp', 'dashExpectEDI', wlExpect);
 bindExpect('#wrgexp', 'dashExpectRG', wlRgExpect);
 
