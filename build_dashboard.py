@@ -3398,6 +3398,12 @@ function workloadSheet(){
     - WL_INTAKE_WINDOW*86400000).toISOString().slice(0,7), 1);
   const months = [...new Set(cr.map(r=>monthOf(toISO(r['Intake Date']))).filter(Boolean))]
     .filter(m=>m>=cutM).sort().slice(-WL_MONTHS);
+  // production split by programme. Migration carries exactly No / eBenefits
+  // Network / Everything Benefits, so those three partition the Production-date
+  // row; Forms is a Request Type and cuts across all three, so it is not part of
+  // that sum.
+  const migIs = (r, v) => txt(r['Migration']).toLowerCase() === v;
+  const prodIn = (m, pred) => cr.filter(r=>monthOf(toISO(r['Production']))===m && pred(r)).length;
   const ledger = months.map(m=>{
     const made = cr.filter(r=>monthOf(toISO(r['Intake Date']))===m);
     const st = s => made.filter(r=>statusIs(r,s)).length;
@@ -3414,6 +3420,10 @@ function workloadSheet(){
       rfp: cr.filter(r=>monthOf(toISO(r['Ready For Production']))===m
         && !toISO(r['Production'])).length,
       prod: cr.filter(r=>monthOf(toISO(r['Production']))===m).length,
+      prodNew:   prodIn(m, r=>migIs(r,'no')),
+      prodEbn:   prodIn(m, r=>migIs(r,'ebenefits network')),
+      prodEb:    prodIn(m, r=>migIs(r,'everything benefits')),
+      prodForms: prodIn(m, isForms),
       prodChild: cr.filter(r=>txt(r['Technical Contact'])===CHILD_OWNER && statusIs(r,'Live')
         && inProd(r,false) && monthOf(toISO(r['Production']))===m).length};
     row.net = row.notStarted + row.inProgress + row.live + row.onHold + row.blocked - row.child;
@@ -3614,6 +3624,10 @@ function renderWorkload(){
       ${line('First production file','ffile')}
       ${line('Ready for production','rfp')}
       ${line('Production date','prod')}
+      ${line('&nbsp;&nbsp;New Order','prodNew')}
+      ${line('&nbsp;&nbsp;eBenefits Network','prodEbn')}
+      ${line('&nbsp;&nbsp;Everything Benefits','prodEb')}
+      ${line('&nbsp;&nbsp;Forms','prodForms')}
       ${line('&nbsp;&nbsp;Child CRs','prodChild')}
       ${line('Net production','actual','tot')}
       <tr><th class="lbl">Output vs intake ${WL_LAG} mo earlier</th>
@@ -3621,7 +3635,9 @@ function renderWorkload(){
     </tbody>
   </table></div>
   <div class="hnote">The lower block counts CRs by the date named, not by when they were created,
-    so a CR can sit in one column above and another below. "Ready for production" counts only CRs
+    so a CR can sit in one column above and another below. New Order / eBenefits Network /
+    Everything Benefits split the Production-date row three ways; Forms is a request type that
+    cuts across all three, so it is not part of that split. "Ready for production" counts only CRs
     that reached Ready-For-Production in that month and have <i>no</i> Production date yet - work
     that is ready but not out - so it never counts the same CR as the row below it.
     Each column is a creation month; the status rows are where those CRs stand
