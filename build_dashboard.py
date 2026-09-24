@@ -62,6 +62,27 @@ ANALYST_DIR = "analysts"
 # Anyone not listed here keeps the default page: their own rows, nobody else's.
 # Names must match the CR report's Technical Contact spelling exactly - the
 # build warns about any that don't.
+# The team page's Analyst queue is split in two. Anyone named here goes in
+# "Active Analysts queue"; every other analyst with work goes in "Inactive
+# Analysts queue". Edit this list - INACTIVE_ANALYSTS below is derived from it,
+# so a name only ever has to be added or removed in one place. Spellings must
+# match the CR report's Technical Contact / the OE report's TechnicalContact
+# exactly; the build prints a warning for any that never appear.
+ACTIVE_ANALYSTS = [
+    "Mirna Azmy",
+    "Aya Fathy",
+    "Reem Radwan",
+    "Zeyad Khaled",
+    "Ahmed Ali",
+    "Josephine Ossama",
+    "Omnia Abdelaziz",
+    "Mark Albert",
+    "Andrew Ramy",
+    "Karen Ramy",
+    "Giulie Alaa",
+    "Alaa Yehia",
+]
+
 PAGE_ROSTERS = {
     "Alaa Yehia": ["Alaa Yehia", "Reem Radwan", "Aya Fathy", "Mai Atef"],
 }
@@ -762,10 +783,19 @@ def main():
             "iSolved Dashboard", password))
     with open(team_out, "w", encoding="utf-8") as f:
         f.write(wrap_encrypted(
-            TEAM_TEMPLATE.replace("__RAW__", raw_json).replace("__EXPECT__", expect_json),
+            TEAM_TEMPLATE.replace("__RAW__", raw_json).replace("__EXPECT__", expect_json)
+                         .replace("__ACTIVE_ANALYSTS__",
+                                  json.dumps(ACTIVE_ANALYSTS, ensure_ascii=False)),
             "Team Overview", password))
     print(f"Wrote {out} + {iso_out} + {team_out} (encrypted): {int(mask.sum())} CR rows, "
           f"{len(ai)} AI rows, {len(oe_recs)} OE rows, {len(ms_recs)} MS rows embedded")
+
+    # the split only works if the names match the reports, so say so at build time
+    tc_names = {_txt(r.get("Technical Contact")) for r in full_raw["cr"]}
+    tc_names |= {_txt(r.get("TechnicalContact")) for r in full_raw["oe"]}
+    unknown = [a for a in ACTIVE_ANALYSTS if a not in tc_names]
+    if unknown:
+        print(f"  WARNING: ACTIVE_ANALYSTS names not found in the reports: {', '.join(unknown)}")
 
     # --- per-analyst views: only that analyst's rows, own password, no nav ---
     # (except the PAGE_ROSTERS pages, which carry their whole group)
@@ -2717,9 +2747,12 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
   <h2>Pipeline stage duration <span style="text-transform:none;letter-spacing:0;font-weight:400">&middot; average time connections spent in each stage &middot; year <select id="duryear" class="yearsel"></select> &middot; show <select id="durstate" class="yearsel"><option value="All">all</option><option value="prod">production</option><option value="inprog">in progress</option></select> &middot; request type <select id="durtype" class="yearsel"></select> &middot; migration <select id="durmig" class="yearsel"></select> &middot; outlier filter <select id="durconf" class="yearsel"><option value="90">90%</option><option value="95">95%</option><option value="99">99%</option><option value="100">off</option></select> &middot; total: <b id="durcount" style="color:var(--ink)"></b></span></h2>
   <div class="card" id="stagedur"></div>
 
-  <h2>Analyst queue <span class="note">&middot; the New Orders workload sheet, recomputed live &middot; expected queue
+  <h2>Active Analysts queue <span class="note">&middot; the New Orders workload sheet, recomputed live &middot; expected queue
     <input id="wexp" class="wnum" type="number" min="1" step="1" value="20"> EDI</span></h2>
   <div class="card" id="wl-queue"></div>
+
+  <h2>Inactive Analysts queue <span class="note">&middot; everyone still holding work who is not on the active list</span></h2>
+  <div class="card" id="wl-queue-inactive"></div>
 
   <h2>Requirements gathering queue <span class="note">&middot; active CRs still being scoped &middot; expected queue
     <input id="wrgexp" class="wnum" type="number" min="1" step="1" value="40"> RG</span></h2>
@@ -3135,6 +3168,10 @@ function renderStageDur(){
 //   - quarters are real calendar quarters with no overlapping month;
 //   - the throughput ratio keeps a constant WL_LAG-month lag throughout (the
 //     sheet's lag collapsed from 3 months to 1 halfway across the row).
+// ACTIVE_ANALYSTS comes from build_dashboard.py - edit the list there. The queue
+// is rendered twice: these names in "Active Analysts queue", everyone else with
+// work in "Inactive Analysts queue".
+const ACTIVE_ANALYSTS = new Set(__ACTIVE_ANALYSTS__);
 const CHILD_OWNER = 'Dina Medhat';   // the account child CRs are booked under
 const WL_MONTHS = 18;                // most recent created-months to tabulate
 const WL_LAG = 3;                    // months between intake and the output it feeds
@@ -3309,6 +3346,28 @@ function workloadSheet(){
   const queueTotal = rows.reduce((a,r)=>a+r.queue, 0);
   const rgTotal = rgCrs.length;
   const grandQueue = queueTotal + rfpTotal + awaiting.length + rgTotal;
+  // The same totals split by ACTIVE_ANALYSTS. Rows always carry a contact, so
+  // queue/rfp split cleanly in two; the Resource Assignment and Requirements
+  // Gathering buckets also hold CRs with no contact at all, which belong to
+  // neither list - they are kept as a third figure so the parts still add up.
+  const actRows = rows.filter(r=>ACTIVE_ANALYSTS.has(r.a));
+  const sumOf = (list, k) => list.reduce((a,r)=>a+r[k], 0);
+  const queueActive   = sumOf(actRows, 'queue');
+  const queueInactive = queueTotal - queueActive;
+  const rfpActive     = sumOf(actRows, 'rfp');
+  const rfpInactive   = rfpTotal - rfpActive;
+  // [active, inactive, nobody] for a list of CRs
+  const cut = list => {
+    const act = list.filter(r=>ACTIVE_ANALYSTS.has(txt(r['Technical Contact']))).length;
+    const none = list.filter(r=>!txt(r['Technical Contact'])).length;
+    return [act, list.length - act - none, none];
+  };
+  const [awaitAct, awaitIna, awaitNone] = cut(awaiting);
+  const [rgAct, rgIna, rgNone] = cut(rgCrs);
+  const grandActive   = queueActive + rfpActive + awaitAct + rgAct;
+  const grandInactive = queueInactive + rfpInactive + awaitIna + rgIna;
+  const grandNoOne    = awaitNone + rgNone;
+  const rowsActive    = actRows.length;
   const childInProg = inProg.filter(r=>txt(r['Technical Contact'])===CHILD_OWNER
     && !isForms(r)).length;
 
@@ -3363,6 +3422,7 @@ function workloadSheet(){
   return {asOf, rows, years, rgRows, rgUnassigned, awaiting: awaiting.length, awaitBy,
     pendingStart, live, ledger, quarters, months, cutM, types, grandQueue, childInProg,
     queueTotal, rfpTotal, rgTotal, blockedOut, oeTotal: oeActive.length, oeUnassigned,
+    queueActive, queueInactive, grandActive, grandInactive, grandNoOne, rowsActive,
     oeSoon: oeSoonList.length, oeThisMonth, oeLater, oeNoPysd, soonMonth, soonStart, soonEnd,
     oeYear, oePrevYear, oeYearTotal: oeThisYear.length,
     oeYearJanTotal: oeJanList.length, oeYearRestTotal: oeThisYear.length - oeJanList.length,
@@ -3399,8 +3459,8 @@ function renderWorkload(){
   // --- analyst queue -----------------------------------------------------
   const yrCols = w.years.map(y=>`<th class="grp">${y}</th>`).join('');
   const queueChips = `<div class="wchips">
-      <div class="wchip" title="queue ${w.queueTotal} + ready for production ${w.rfpTotal} + awaiting assignment ${w.awaiting} + requirements gathering ${w.rgTotal}"><b>${w.grandQueue}</b>current in-progress queue</div>
-      <div class="wchip"><b>${w.queueTotal}</b>queue across ${w.rows.length} analyst${w.rows.length===1?'':'s'}</div>
+      <div class="wchip" title="queue ${w.queueTotal} + ready for production ${w.rfpTotal} + awaiting assignment ${w.awaiting} + requirements gathering ${w.rgTotal}&#10;Split by the ACTIVE_ANALYSTS list; work with no analyst at all belongs to neither side."><b>${w.grandQueue}</b>current in-progress queue &middot; ${w.grandActive} active &middot; ${w.grandInactive} inactive${w.grandNoOne?` &middot; ${w.grandNoOne} no analyst`:''}</div>
+      <div class="wchip"><b>${w.queueTotal}</b>queue across ${w.rows.length} analyst${w.rows.length===1?'':'s'} &middot; ${w.queueActive} active (${w.rowsActive}) &middot; ${w.queueInactive} inactive (${w.rows.length-w.rowsActive})</div>
       <div class="wchip"><b>${w.childInProg}</b>child CRs in progress</div>
       <div class="wchip"><b>${w.live.edi}</b>live EDI connections${w.live.child?` &middot; ${w.live.child} child`:''}</div>
       <div class="wchip"><b>${w.live.forms}</b>live Forms connections</div>
@@ -3408,7 +3468,9 @@ function renderWorkload(){
       <div class="wchip" title="Plan year starting in ${w.soonMonth} and naming no technical contact - they are in no row below"><b>${w.oeUnassigned}</b>OE requests with no analyst</div>
       <div class="wchip"><b>${w.live.disabled}</b>production disabled</div>
     </div>`;
-  $('#wl-queue').innerHTML = w.rows.length ? queueChips + `<div class="wscroll"><table class="wtbl">
+  // One definition, rendered for each group: totals and the capacity bar are
+  // computed from the rows handed in, so each section foots its own numbers.
+  const queueTable = rows => { const sum = k => rows.reduce((a,r)=>a+r[k],0); return `<div class="wscroll"><table class="wtbl">
     <thead>
       <tr><th class="lbl"></th><th colspan="2" class="grp">Load</th>
         <th colspan="6" class="grp">EDI</th><th colspan="6" class="grp">Forms</th>
@@ -3426,7 +3488,7 @@ function renderWorkload(){
         <th class="grp">Jan</th><th>Feb-Dec</th><th class="grp">Jan</th><th>Feb-Dec</th>${yrCols}</tr>
     </thead>
     <tbody>
-      ${w.rows.map(r=>`<tr>
+      ${rows.map(r=>`<tr>
         <th class="lbl">${who(r.a)}</th>
         ${n(r.queue,'grp')}${capBar(r.queue, wlExpect)}
         ${n(r.notStarted,'grp')}${n(r.dataset)}${n(r.mapping)}${n(r.testing)}${n(r.rfp)}${dcell(r.ediDate)}
@@ -3436,41 +3498,43 @@ function renderWorkload(){
       </tr>`).join('')}
     </tbody>
     <tfoot><tr class="tot"><th class="lbl">Totals</th>
-      ${n(sum('queue'),'grp')}${capBar(sum('queue'), wlExpect*w.rows.length)}
+      ${n(sum('queue'),'grp')}${capBar(sum('queue'), wlExpect*rows.length)}
       ${n(sum('notStarted'),'grp')}${n(sum('dataset'))}${n(sum('mapping'))}${n(sum('testing'))}${n(sum('rfp'))}<td></td>
       ${n(sum('forms'),'grp')}${n(sum('fMapping'))}${n(sum('fTesting'))}${n(sum('fMig'))}${n(sum('fProd'))}<td></td>
       ${n(sum('oe'),'grp')}${n(sum('oeNotStart'))}${n(sum('oeGather'))}${n(sum('oeWaiting'))}${n(sum('oeSending'))}${n(sum('oeConfirm'))}${n(sum('oePrevJan'),'grp')}${n(sum('oePrevRest'))}${n(sum('oeYearJan'),'grp')}${n(sum('oeYearRest'))}
-      ${w.years.map((_,i)=>n(w.rows.reduce((a,r)=>a+r.byYear[i],0), i?'':'grp')).join('')}
+      ${w.years.map((_,i)=>n(rows.reduce((a,r)=>a+r.byYear[i],0), i?'':'grp')).join('')}
     </tr></tfoot>
-  </table></div>
-  <div class="hnote">In-progress connections only - blocked and on-hold work is not counted.
-    "Not started" is a CR sitting in Dataset Validation that has never been assigned; "Queue" is
-    the four EDI stages plus every open Forms request, measured against the
-    <b>${wlExpect}</b> expected per analyst (amber over 100%, red over 150%). "Last assigned"
-    turns amber after ${ASSIGN_WARN} working days and red after ${ASSIGN_BAD} (Friday and Saturday
-    excluded) - nobody has handed them work since.
-    The OE columns are open-enrollment requests (active status only, from the OE report,
-    bucketed across the seven OE stages) - they are a separate queue and are deliberately
-    <b>not</b> included in "Queue" or the capacity bar, so those keep matching the workbook.
-    Only <b>Regular</b> OE requests are counted anywhere in this section; "One Time" requests
-    are left out.     "PY ${w.oePrevYear}" and "PY ${w.oeYear}" are the year's assigned Regular OEs, each split by the
-    month the plan year starts - January is the renewal wave, "Feb-Dec" is everything from February
-    on. They count every status: completed, cancelled, blocked and on-hold included, so they are the
-    whole assigned workload for that year and are much larger than "Assigned", which counts only
-    forward-looking work still open. Drafts never count. Team totals - ${w.oePrevYear}:
-    <b>${w.oePrevJanTotal}</b> January, <b>${w.oePrevRestTotal}</b> rest; ${w.oeYear}:
-    <b>${w.oeYearJanTotal}</b> January, <b>${w.oeYearRestTotal}</b> rest.
-    "Assigned" is every open OE request that names the analyst whose plan year has not
-    started yet; ones already past their PlanYearStartDate are left out here and listed
-    under Needs attention instead. Drafts are never counted. Every OE with no technical
-    contact is missing from these columns whatever its plan year, so they will not add up
-    to the open total; the chip above counts only the ${w.oeUnassigned} of them whose plan
-    year starts in ${w.soonMonth}.
-    Live Forms and the ${w.years.join(' / ')} columns count CRs of any status, so they include
-    work that has already left the queue.${w.formsTypes.length?` Request type
+  </table></div>`; };
+  // kept deliberately terse: one line per idea, no restating what a column header
+  // already says. Anything longer belongs in CALCULATIONS.md.
+  const queueNote = `<div class="hnote">
+    In-progress connections only; blocked and on-hold work is excluded.
+    "Queue" is the four EDI stages plus open Forms, against <b>${wlExpect}</b> expected each
+    (amber over 100%, red over 150%). "Not started" is a Dataset Validation CR never assigned.
+    "Last assigned" turns amber after ${ASSIGN_WARN} working days, red after ${ASSIGN_BAD}.
+    <br>OE counts <b>Regular</b> requests only and never feeds "Queue" or the capacity bar.
+    "Assigned" is open OEs whose plan year has not started - later ones sit under Needs attention.
+    "PY ${w.oePrevYear}" / "PY ${w.oeYear}" are that year's assigned OEs in every status, split by
+    plan-year start month (team totals <b>${w.oePrevJanTotal}</b>/<b>${w.oePrevRestTotal}</b> and
+    <b>${w.oeYearJanTotal}</b>/<b>${w.oeYearRestTotal}</b>). Drafts, and OEs with no technical
+    contact, never appear in these columns.${w.formsTypes.length?` <br>Request type
     ${w.formsTypes.map(t=>'&ldquo;'+esc(t)+'&rdquo;').join(' / ')} is read as Forms; every other
-    type counts as EDI.`:` No request type in the data reads as Forms, so the Forms columns stay empty.`}</div>`
-    : '<div class="empty">No in-progress connections.</div>';
+    type counts as EDI.`:` <br>No request type in the data reads as Forms, so the Forms columns stay empty.`}
+  </div>`;
+
+  const active = w.rows.filter(r=>ACTIVE_ANALYSTS.has(r.a));
+  const inactive = w.rows.filter(r=>!ACTIVE_ANALYSTS.has(r.a));
+  $('#wl-queue').innerHTML = queueChips + (active.length
+    ? queueTable(active) + queueNote
+    : '<div class="empty">No active analyst is holding in-progress work.</div>');
+  // the same rules apply here, so the note is not repeated in full
+  $('#wl-queue-inactive').innerHTML = inactive.length
+    ? queueTable(inactive)
+      + `<div class="hnote">Same columns and rules as the active queue above.
+         These ${inactive.length} analyst${inactive.length===1?' is':'s are'} not on the
+         ACTIVE_ANALYSTS list in build_dashboard.py but still hold${inactive.length===1?'s':''}
+         work in the reports.</div>`
+    : '<div class="empty">Everyone holding work is on the active list.</div>';
 
   // --- requirements gathering -------------------------------------------
   const rgTot = w.rgRows.reduce((a,r)=>a+r.n,0);
