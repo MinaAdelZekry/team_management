@@ -3657,7 +3657,6 @@ function renderWorkload(){
     <thead><tr><th class="lbl">Produced in month</th>${mhead}<th class="grp">Total</th></tr></thead>
     <tbody>
       ${line('First production file','ffile')}
-      ${line('Ready for production','rfp')}
       ${line('Production date','prod')}
       ${line('New Order','prodNew','sub')}
       ${line('eBenefits Network','prodEbn','sub')}
@@ -3665,6 +3664,7 @@ function renderWorkload(){
       ${line('Forms','prodForms','sub')}
       ${line('Child CRs','prodChild','sub')}
       ${line('Net production','actual','tot')}
+      ${line('Ready for production','rfp')}
       <tr><th class="lbl">Output vs intake ${WL_LAG} mo earlier</th>
         ${L.map(r=>ratioCell(r.ratio)).join('')}<td class="grp"></td></tr>
     </tbody>
