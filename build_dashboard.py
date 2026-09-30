@@ -2703,6 +2703,15 @@ TEAM_TEMPLATE = r"""<!DOCTYPE html>
         background:var(--card);font-family:inherit}
   .wtbl thead th.lbl{z-index:2;background:var(--th-bg)}
   .wtbl tr.tot>th.lbl{background:var(--th-bg)}
+  /* a sub-row belongs to the row above it: indented, lighter label and figures,
+     and a hairline down the label column to carry the eye. The indent is padding
+     rather than &nbsp; so the label still truncates and aligns properly. */
+  .wtbl tr.sub>th.lbl{font-weight:500;color:var(--ink-soft);padding-left:26px;
+        box-shadow:inset 3px 0 0 -1px var(--line)}
+  .wtbl tr.sub>td{color:var(--ink-soft)}
+  .wtbl tr.sub>th,.wtbl tr.sub>td{border-bottom-color:transparent}
+  .wtbl tr.sub+tr:not(.sub)>th,.wtbl tr.sub+tr:not(.sub)>td{
+        border-top:1px solid var(--line)}
   /* Queue tables also freeze the Load pair, so an analyst's headline numbers stay
      next to their name while the 25 columns to the right scroll. Sticky offsets
      have to be literal pixels, so these three columns are given fixed widths -
@@ -3434,6 +3443,10 @@ function workloadSheet(){
       child: made.filter(r=>txt(r['Technical Contact'])===CHILD_OWNER
         && !statusIs(r,'Cancelled')).length,
       mig: made.filter(r=>!isForms(r) && wlMig(r) && !statusIs(r,'Cancelled')).length,
+      migEbn: made.filter(r=>!isForms(r) && !statusIs(r,'Cancelled')
+        && migIs(r,'ebenefits network')).length,
+      migEb: made.filter(r=>!isForms(r) && !statusIs(r,'Cancelled')
+        && migIs(r,'everything benefits')).length,
       forms: made.filter(r=>isForms(r) && !statusIs(r,'Cancelled')).length,
       formsCanc: made.filter(r=>isForms(r) && statusIs(r,'Cancelled')).length,
       ffile: cr.filter(r=>monthOf(toISO(r['First Production File']))===m).length,
@@ -3627,15 +3640,17 @@ function renderWorkload(){
     <thead><tr><th class="lbl">Created in month</th>${mhead}<th class="grp">Total</th></tr></thead>
     <tbody>
       ${line('CRs created','input','tot')}
-      ${line('&nbsp;&nbsp;Not started','notStarted','','warn')}
-      ${line('&nbsp;&nbsp;In progress','inProgress')}
-      ${line('&nbsp;&nbsp;Live','live')}
-      ${line('&nbsp;&nbsp;On hold','onHold')}
-      ${line('&nbsp;&nbsp;Blocked','blocked')}
-      ${line('&nbsp;&nbsp;Cancelled','cancelled')}
-      ${line('&nbsp;&nbsp;Child CRs','child')}
+      ${line('Not started','notStarted','sub','warn')}
+      ${line('In progress','inProgress','sub')}
+      ${line('Live','live','sub')}
+      ${line('On hold','onHold','sub')}
+      ${line('Blocked','blocked','sub')}
+      ${line('Cancelled','cancelled','sub')}
+      ${line('Child CRs','child','sub')}
       ${line('Net intake','net','tot')}
       ${line('Migrations','mig')}
+      ${line('eBenefits Network','migEbn','sub')}
+      ${line('Everything Benefits','migEb','sub')}
       ${line('Forms','forms')}
       ${line('Forms cancelled','formsCanc')}
     </tbody>
@@ -3644,11 +3659,11 @@ function renderWorkload(){
       ${line('First production file','ffile')}
       ${line('Ready for production','rfp')}
       ${line('Production date','prod')}
-      ${line('&nbsp;&nbsp;New Order','prodNew')}
-      ${line('&nbsp;&nbsp;eBenefits Network','prodEbn')}
-      ${line('&nbsp;&nbsp;Everything Benefits','prodEb')}
-      ${line('&nbsp;&nbsp;Forms','prodForms')}
-      ${line('&nbsp;&nbsp;Child CRs','prodChild')}
+      ${line('New Order','prodNew','sub')}
+      ${line('eBenefits Network','prodEbn','sub')}
+      ${line('Everything Benefits','prodEb','sub')}
+      ${line('Forms','prodForms','sub')}
+      ${line('Child CRs','prodChild','sub')}
       ${line('Net production','actual','tot')}
       <tr><th class="lbl">Output vs intake ${WL_LAG} mo earlier</th>
         ${L.map(r=>ratioCell(r.ratio)).join('')}<td class="grp"></td></tr>
