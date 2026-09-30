@@ -89,10 +89,15 @@ ACTIVE_ANALYSTS = [
     "Karen Ramy",
     "Giulie Alaa",
     "Alaa Yehia",
+    "Hady Sherif",
+    "Jana Ahmed",
+    "Malak Wael",
+    "Mariam Mohammed",
+    "Omneya Osama",
 ]
 
 PAGE_ROSTERS = {
-    "Alaa Yehia": ["Alaa Yehia", "Reem Radwan", "Aya Fathy", "Mai Atef"],
+    "Alaa Yehia": ["Alaa Yehia", "Reem Radwan", "Aya Fathy", "Mai Atef",  "Hady Sherif", "Jana Ahmed", "Malak Wael","Mariam Mohammed"],
 }
 
 
