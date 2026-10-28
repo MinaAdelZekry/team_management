@@ -94,6 +94,8 @@ ACTIVE_ANALYSTS = [
     "Malak Wael",
     "Mariam Mohammed",
     "Omneya Osama",
+    "Mayar Mohamed",
+    "Abdulrahman Atef",
 ]
 
 PAGE_ROSTERS = {
